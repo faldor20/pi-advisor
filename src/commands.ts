@@ -46,7 +46,9 @@ import {
   adviceForDisplay,
   advisorSessionState,
   consultAdvisor,
+  hasSoundVerdict,
   renderAdvisorCallBox,
+  renderAdvisorResponseHeader,
   resolveAdvisorRequest,
 } from "./tools.js";
 import {
@@ -134,7 +136,6 @@ export const registerCommands = (
     ((ctx, question, signal) =>
       consultAdvisor(ctx, question, signal, undefined, "manual"));
   const manualConsultations = new Set<AbortController>();
-  let restoringExecutor = false;
 
   const startManualConsultation = (
     ctx: ExtensionContext,
@@ -201,36 +202,47 @@ export const registerCommands = (
       });
   };
 
-  const activateAdvisor = async (args: string, ctx: ExtensionContext) => {
+  /** Resolves both models and their auth, or reports why activation cannot proceed. */
+  const resolveActivationModels = async (ctx: ExtensionContext) => {
+    const executor = findConfiguredModel(ctx, executorRef);
+    if (!executor) {
+      return { error: `Executor model not found: ${executorRef}` };
+    }
+    const advisor = findConfiguredModel(ctx, advisorRef);
+    if (!advisor) {
+      return { error: `Advisor model not found: ${advisorRef}` };
+    }
+    const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
+    if (!(advisorAuth.ok && advisorAuth.apiKey)) {
+      return { error: `No API key for Advisor ${advisorRef}` };
+    }
+    if (!(await pi.setModel(executor))) {
+      return { error: `No API key for Executor ${executorRef}` };
+    }
+    return {};
+  };
+
+  const activateAdvisor = async (
+    args: string,
+    ctx: ExtensionContext,
+    announce = true
+  ) => {
     loadConfig(ctx);
     const argumentError = parseArgs(args);
     if (argumentError) {
       notify(ctx, argumentError, "error");
       return;
     }
-    const executor = findConfiguredModel(ctx, executorRef);
-    if (!executor) {
-      notify(ctx, `Executor model not found: ${executorRef}`, "error");
+    const { error } = await resolveActivationModels(ctx);
+    if (error) {
+      notify(ctx, error, "error");
       return;
     }
-    const advisor = findConfiguredModel(ctx, advisorRef);
-    if (!advisor) {
-      notify(ctx, `Advisor model not found: ${advisorRef}`, "error");
-      return;
-    }
-    const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
-    if (!(advisorAuth.ok && advisorAuth.apiKey)) {
-      notify(ctx, `No API key for Advisor ${advisorRef}`, "error");
-      return;
-    }
-    restoringExecutor = true;
-    try {
-      if (!(await pi.setModel(executor))) {
-        notify(ctx, `No API key for Executor ${executorRef}`, "error");
-        return;
-      }
-    } finally {
-      restoringExecutor = false;
+    // parseArgs only mutates in-memory refs, and every later loadConfig resets
+    // them from disk. Persist supplied arguments once they are known to resolve,
+    // so an unusable model reference is never written to the configuration.
+    if (args.trim()) {
+      saveConfig(ctx);
     }
     if (executorEffortRef) {
       pi.setThinkingLevel(executorEffortRef as ThinkingLevel);
@@ -238,11 +250,13 @@ export const registerCommands = (
     if (!flowEnabled()) {
       pi.setActiveTools([...pi.getActiveTools(), "ask_advisor"]);
     }
-    notify(
-      ctx,
-      `Advisor flow ready — Executor: ${executorRef} (thinking: ${executorEffortRef || "default"}) · Advisor: ${advisorRef} (thinking: ${advisorEffortRef || "default"})`,
-      "info"
-    );
+    if (announce) {
+      notify(
+        ctx,
+        `Advisor flow ready — Executor: ${executorRef} (thinking: ${executorEffortRef || "default"}) · Advisor: ${advisorRef} (thinking: ${advisorEffortRef || "default"})`,
+        "info"
+      );
+    }
   };
 
   pi.registerEntryRenderer?.(
@@ -260,17 +274,22 @@ export const registerCommands = (
         | { advisor?: string; text?: string }
         | undefined;
       const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-      box.addChild(
-        new Text(theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE")), 0, 0)
-      );
-      if (details?.advisor) {
-        box.addChild(new Text(theme.fg("dim", `  ${details.advisor}`), 0, 0));
-      }
       const advice =
         details?.text ??
         (typeof message.content === "string"
           ? message.content
           : "(Advisor returned no advice.)");
+      // Manual consultations must render exactly like an Executor ask_advisor call.
+      box.addChild(
+        new Text(
+          renderAdvisorResponseHeader(hasSoundVerdict(advice), theme),
+          0,
+          0
+        )
+      );
+      if (details?.advisor) {
+        box.addChild(new Text(theme.fg("dim", `  ${details.advisor}`), 0, 0));
+      }
       box.addChild(
         new Markdown(
           adviceForDisplay(advice, expanded),
@@ -284,17 +303,30 @@ export const registerCommands = (
   );
 
   pi.on("session_start", async (_event, ctx) => {
-    loadConfig(ctx);
-    if (alwaysOnRef) {
-      await activateAdvisor("", ctx);
+    // A malformed advisor.json or a provider auth failure must not reject a
+    // lifecycle handler and break session startup.
+    try {
+      loadConfig(ctx);
+      if (alwaysOnRef) {
+        await activateAdvisor("", ctx, false);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notify(ctx, `Advisor activation failed: ${message}`, "error");
     }
   });
 
   pi.on("model_select", (event, ctx) => {
-    if (!flowEnabled() || restoringExecutor) {
+    // Only an explicit user selection redefines the Executor. "restore" replays a
+    // stored session model and would otherwise overwrite saved configuration.
+    if (event.source !== "set" || !flowEnabled()) {
       return;
     }
-    setExecutorRef(`${event.model.provider}/${event.model.id}`);
+    const selected = `${event.model.provider}/${event.model.id}`;
+    if (selected === executorRef) {
+      return;
+    }
+    setExecutorRef(selected);
     saveConfig(ctx);
   });
 
@@ -485,12 +517,17 @@ export const registerCommands = (
       pi.setActiveTools(
         pi.getActiveTools().filter((name) => name !== "ask_advisor")
       );
-      if (ctx.hasUI) {
-        ctx.ui.notify(
-          "Advisor flow disabled. Current model unchanged.",
-          "info"
-        );
+      // Leaving alwaysOn set would silently reactivate the flow next session.
+      const wasAlwaysOn = alwaysOnRef;
+      if (wasAlwaysOn) {
+        setAlwaysOnRef(false);
+        saveConfig(ctx);
       }
+      notify(
+        ctx,
+        `Advisor flow disabled. Current model unchanged.${wasAlwaysOn ? " Always on turned off." : ""}`,
+        "info"
+      );
       return Promise.resolve();
     },
   });

@@ -368,6 +368,10 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     return this.visibleRows()[this.selectedRow] ?? "simpleMode";
   }
 
+  private focusRow(rowId: AdvisorSettingsRow): void {
+    this.selectedRow = Math.max(0, this.visibleRows().indexOf(rowId));
+  }
+
   private currentContext(): ContextPreset {
     const preset = this.options.presets.find(
       (item) => item.value === this.settings.contextMaxChars
@@ -395,7 +399,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
       this.settings.simpleMode &&
       this.simpleModeGradientStartedAt !== undefined
     ) {
-      return `${prefix} ${this.rainbowGradient(label)}${" ".repeat(28 - label.length)} ${value}`;
+      return `${prefix} ${this.rainbowGradient(label)}${" ".repeat(Math.max(0, 28 - label.length))} ${value}`;
     }
     return selected
       ? theme.fg("accent", theme.bold(text))
@@ -703,6 +707,9 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         } else {
           this.stopSimpleModeGradient();
         }
+        // The visible row set changes with the mode, so keep the cursor on the
+        // row the user is actually operating rather than on its old index.
+        this.focusRow("simpleMode");
         break;
       case "alwaysOn":
         this.settings.alwaysOn = !(this.settings.alwaysOn ?? false);

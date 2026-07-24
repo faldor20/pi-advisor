@@ -9,13 +9,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - Simple mode for voluntary `ask_advisor` and `/advisor-manual` consultations without automatic gates, blocks, budgets, or session summaries; privacy and context controls remain active.
-- Persistent `alwaysOn` Advisor-flow activation, including Executor restoration and `/model` synchronization while active.
+- Persistent `alwaysOn` Advisor-flow activation, including Executor restoration and, while the flow is active, adoption of an explicit `/model` selection as the Executor. `/advisor-off` also turns persistent activation off.
 - Simple-mode settings for voluntary Advisor use and persistent activation.
-- Static `◆ ADVISOR · SOUND` rendering for ordinary Advisor replies beginning with `Verdict: sound`.
+- Static `◆ ADVISOR · SOUND` rendering for ordinary Advisor replies beginning with `Verdict: sound`, for both `ask_advisor` results and `/advisor-manual` responses.
 
 ### Changed
 
 - Session Advisor Summary now defaults to off.
+
+### Fixed
+
+- `/advisor contextMaxChars=N` now persists, so the supplied limit applies to later consultations instead of reverting at the next tool call.
+- A zero context limit with no targeted focus no longer sends an empty Advisor request that some providers reject.
+- An Advisor gate response that quotes a decision line inside a fenced example is no longer rejected as a duplicate or contradictory decision.
+- Reconstructed Advisor context is assembled without re-joining the accumulated branch on every entry, which removes a slowdown on long sessions with large context limits.
 
 ## 0.2.3
 

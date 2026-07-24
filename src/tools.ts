@@ -70,8 +70,15 @@ export const SPINNER_FRAMES = [
 ];
 export const resolveAdvisorRequest = (question?: string) =>
   question?.trim() || undefined;
-export const advisorMessageText = (conversation: string, question?: string) =>
-  `${conversation ? `<conversation>\n${conversation}\n</conversation>` : ""}${question ? `\n\nTargeted focus:\n${question}` : ""}`;
+export const advisorMessageText = (conversation: string, question?: string) => {
+  const text = `${conversation ? `<conversation>\n${conversation}\n</conversation>` : ""}${question ? `\n\nTargeted focus:\n${question}` : ""}`;
+  // A zero context limit with no targeted focus would otherwise send an empty
+  // user message, which several providers reject outright.
+  return (
+    text.trim() ||
+    "No conversation context is available. State that you cannot review without context."
+  );
+};
 
 /** The sole reconstructed-context boundary for outgoing Advisor requests. */
 export const advisorRequestConversation = (ctx: ExtensionContext) =>
@@ -97,10 +104,19 @@ export const renderAdvisorCallBox = (
 };
 
 const COLLAPSED_ADVICE_LINES = 12;
-const SOUND_VERDICT = /^Verdict:\s*sound\s*$/im;
+// The system prompt requires this exact first line, so the match is exact too.
+const SOUND_VERDICT = /^Verdict:\s*sound$/;
 
 export const hasSoundVerdict = (advice: string) =>
-  SOUND_VERDICT.test(advice.split("\n").find((line) => line.trim()) ?? "");
+  SOUND_VERDICT.test(
+    (advice.split("\n").find((line) => line.trim()) ?? "").trim()
+  );
+
+/** The single Advisor response header shared by tool and manual renderers. */
+export const renderAdvisorResponseHeader = (sound: boolean, theme: Theme) =>
+  sound
+    ? theme.fg("accent", theme.bold("◆ ADVISOR · SOUND"))
+    : theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE"));
 
 export const adviceForDisplay = (advice: string, expanded: boolean) => {
   if (!advisorCollapseResponsesRef || expanded) {
@@ -204,6 +220,7 @@ export const advisorUsageCost = (usage: unknown): number | undefined => {
 
 const DECISION_LINE = /^Decision\s*:\s*(proceed|revise|blocked)\s*$/i;
 const ANY_DECISION_LINE = /^Decision\s*:\s*(.*?)\s*$/i;
+const CODE_FENCE = /^(?:```|~~~)/;
 const LINE_BREAK = /\r?\n/;
 
 export const parseAutomaticDecision = (
@@ -232,8 +249,19 @@ export const parseAutomaticDecision = (
     };
   }
   const decision = match[1].toLowerCase() as GateDecision;
+  let insideFence = false;
   for (const line of lines.slice(nonEmpty + 1)) {
-    const subsequent = ANY_DECISION_LINE.exec(line.trim());
+    const trimmed = line.trim();
+    // A decision quoted inside a fenced example is illustrative, not a second
+    // decision, and must not fail the gate.
+    if (CODE_FENCE.test(trimmed)) {
+      insideFence = !insideFence;
+      continue;
+    }
+    if (insideFence) {
+      continue;
+    }
+    const subsequent = ANY_DECISION_LINE.exec(trimmed);
     if (!subsequent) {
       continue;
     }
@@ -678,12 +706,7 @@ const renderFinalAdvisorResult = (
   }
   const details = advisorResultDetails(result);
   const advice = details?.text || textFrom(result.content);
-  const sound = hasSoundVerdict(advice);
-  const lines = [
-    sound
-      ? theme.fg("accent", theme.bold("◆ ADVISOR · SOUND"))
-      : theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE")),
-  ];
+  const lines = [renderAdvisorResponseHeader(hasSoundVerdict(advice), theme)];
   if (details?.advisor) {
     lines.push(theme.fg("dim", `  ${details.advisor}`));
   }
@@ -819,7 +842,14 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
       return;
     }
     loadConfig(ctx);
-    if (!isSimpleMode() && session.blocked) {
+    if (isSimpleMode()) {
+      // Simple mode does not gate, so a block recorded before it was enabled must
+      // not linger in session or Herdr state and misreport the session as blocked.
+      if (session.blocked) {
+        session.clearBlocked();
+        herdrAdvisorBlock.clear();
+      }
+    } else if (session.blocked) {
       return {
         block: true,
         reason: session.blockedReason ?? "Advisor session is blocked.",

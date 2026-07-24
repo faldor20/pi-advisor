@@ -4,6 +4,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,6 +41,7 @@ import {
   loadConfig,
   MAX_CONTEXT_MAX_CHARS,
   parseArgs,
+  resetConfigCache,
   saveConfig,
   setAdvisorAutoLoopGateRef,
   setAdvisorBlockOnBlockedRef,
@@ -148,6 +151,39 @@ describe("Config Module", () => {
       setExecutorRef(previousConfig.executor);
       setExecutorEffortRef(previousConfig.executorEffort);
       rmSync(cwd, { force: true, recursive: true });
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
+  test("re-reads a rewritten config that kept its modification time", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    const configPath = join(agentDir, "advisor.json");
+    const ctx = { cwd: tmpdir(), isProjectTrusted: () => false } as any;
+
+    try {
+      writeFileSync(configPath, JSON.stringify({ contextMaxChars: 10_000 }));
+      resetConfigCache();
+      loadConfig(ctx);
+      expect(contextMaxCharsRef).toBe(10_000);
+      const { atime, mtime } = statSync(configPath);
+
+      // A same-size external rewrite whose timestamp is restored must not be
+      // served from the parsed-configuration cache.
+      writeFileSync(configPath, JSON.stringify({ contextMaxChars: 20_000 }));
+      utimesSync(configPath, atime, mtime);
+      expect(statSync(configPath).mtimeMs).toBe(mtime.getTime());
+
+      loadConfig(ctx);
+      expect(contextMaxCharsRef).toBe(20_000);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
       rmSync(agentDir, { force: true, recursive: true });
     }
   });

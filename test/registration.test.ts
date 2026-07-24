@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ExtensionAPI, initTheme } from "@earendil-works/pi-coding-agent";
@@ -9,6 +15,9 @@ import registerExtension, {
 } from "../extensions/index.js";
 import { registerCommands } from "../src/commands.js";
 import {
+  contextMaxCharsRef,
+  loadConfig,
+  resetConfigCache,
   setAdvisorCollapseResponsesRef,
   setAdvisorRedactSecretsRef,
   setAdvisorToolPoliciesRef,
@@ -23,6 +32,7 @@ import {
   adviceForDisplay,
   advisorMessageText,
   advisorRequestConversation,
+  advisorSessionState,
   gateFailureEffectForMode,
   parseAutomaticDecision,
   resolveAdvisorRequest,
@@ -33,6 +43,12 @@ initTheme();
 
 const SPINNER_PATTERN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
 const MAX_CALLS_ROW_PATTERN = /Max Advisor calls\/session\s+10/;
+const SIMPLE_MODE_ON = /› Simple mode\s+On/;
+const SIMPLE_MODE_OFF = /› Simple mode\s+Off/;
+const CONTEXT_10K = /Context window\s+10k/;
+const ALWAYS_ON_OFF = /Always on\s+Off/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal SGR codes
+const SGR_CODE = /\u001b\[[0-9;]*m/g;
 
 describe("Herdr Advisor activity", () => {
   test("constructs sanitized request notifications within Herdr limits", () => {
@@ -872,5 +888,410 @@ describe("Extension Registration", () => {
       context
     );
     expect(context.state.timerId).toBeUndefined();
+  });
+});
+
+describe("Advisor activation and mode regressions", () => {
+  const plainTheme = {
+    bg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+    fg: (_color: string, text: string) => text,
+  } as any;
+
+  const withAgentDir = async (
+    initial: Record<string, unknown>,
+    run: (agentDir: string) => Promise<void> | void
+  ) => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify(initial, null, 2)
+    );
+    resetConfigCache();
+    try {
+      await run(agentDir);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  };
+
+  const harness = () => {
+    const commands = new Map<string, any>();
+    const events = new Map<string, (event: any, ctx: any) => any>();
+    const renderers = new Map<string, any>();
+    let activeTools: string[] = ["ask_advisor"];
+    const pi = {
+      appendEntry: () => undefined,
+      getActiveTools: () => activeTools,
+      on(event: string, handler: any) {
+        events.set(event, handler);
+      },
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      registerEntryRenderer: () => undefined,
+      registerMessageRenderer(type: string, renderer: any) {
+        renderers.set(type, renderer);
+      },
+      sendMessage: () => undefined,
+      setActiveTools(tools: string[]) {
+        activeTools = tools;
+      },
+      setModel: () => Promise.resolve(true),
+      setThinkingLevel: () => undefined,
+    } as unknown as ExtensionAPI;
+    return {
+      commands,
+      events,
+      pi,
+      renderers,
+      setActiveTools: (tools: string[]) => {
+        activeTools = tools;
+      },
+    };
+  };
+
+  const context = (agentDir: string, notes: string[] = []) =>
+    ({
+      cwd: agentDir,
+      hasUI: true,
+      isProjectTrusted: () => false,
+      modelRegistry: {
+        find: (provider: string, id: string) => ({ id, provider }),
+        getApiKeyAndHeaders: () => Promise.resolve({ apiKey: "key", ok: true }),
+      },
+      ui: { notify: (message: string) => notes.push(message) },
+    }) as any;
+
+  const savedConfig = (agentDir: string) =>
+    JSON.parse(readFileSync(join(agentDir, "advisor.json"), "utf8"));
+
+  test("only an explicit model selection redefines the persisted Executor", async () => {
+    await withAgentDir(
+      { executor: "configured/executor" },
+      async (agentDir) => {
+        const { events, pi } = harness();
+        registerCommands(pi);
+        const ctx = context(agentDir);
+        await events.get("session_start")?.({ reason: "startup" }, ctx);
+
+        for (const source of ["restore", "cycle"] as const) {
+          events.get("model_select")?.(
+            { model: { id: "other", provider: "vendor" }, source },
+            ctx
+          );
+          expect(savedConfig(agentDir).executor).toBe("configured/executor");
+        }
+
+        events.get("model_select")?.(
+          { model: { id: "chosen", provider: "vendor" }, source: "set" },
+          ctx
+        );
+        expect(savedConfig(agentDir).executor).toBe("vendor/chosen");
+      }
+    );
+  });
+
+  test("ignores model selection while the Advisor flow is inactive", async () => {
+    await withAgentDir({ executor: "configured/executor" }, (agentDir) => {
+      const { events, pi, setActiveTools } = harness();
+      registerCommands(pi);
+      setActiveTools([]);
+      events.get("model_select")?.(
+        { model: { id: "chosen", provider: "vendor" }, source: "set" },
+        context(agentDir)
+      );
+      expect(savedConfig(agentDir).executor).toBe("configured/executor");
+    });
+  });
+
+  test("reports rather than throws when always-on activation fails", async () => {
+    await withAgentDir({ alwaysOn: true }, async (agentDir) => {
+      writeFileSync(join(agentDir, "advisor.json"), "{ not json");
+      resetConfigCache();
+      const { events, pi } = harness();
+      registerCommands(pi);
+      const notes: string[] = [];
+      await events.get("session_start")?.(
+        { reason: "startup" },
+        context(agentDir, notes)
+      );
+      expect(notes.join("\n")).toContain("Advisor activation failed");
+    });
+  });
+
+  test("activates silently for always-on sessions but announces /advisor", async () => {
+    await withAgentDir({ alwaysOn: true }, async (agentDir) => {
+      const { commands, events, pi, setActiveTools } = harness();
+      registerCommands(pi);
+      const automatic: string[] = [];
+      setActiveTools([]);
+      await events.get("session_start")?.(
+        { reason: "startup" },
+        context(agentDir, automatic)
+      );
+      expect(automatic).toEqual([]);
+      expect(pi.getActiveTools()).toContain("ask_advisor");
+
+      const manual: string[] = [];
+      await commands.get("advisor").handler("", context(agentDir, manual));
+      expect(manual.join("\n")).toContain("Advisor flow ready");
+    });
+  });
+
+  test("turning the Advisor off also clears persistent activation", async () => {
+    await withAgentDir({ alwaysOn: true }, async (agentDir) => {
+      const { commands, events, pi } = harness();
+      registerCommands(pi);
+      const notes: string[] = [];
+      const ctx = context(agentDir, notes);
+      await events.get("session_start")?.({ reason: "startup" }, ctx);
+
+      await commands.get("advisor-off").handler("", ctx);
+      expect(pi.getActiveTools()).not.toContain("ask_advisor");
+      expect(savedConfig(agentDir).alwaysOn).toBe(false);
+      expect(notes.at(-1)).toContain("Always on turned off");
+    });
+  });
+
+  test("persists context arguments supplied to /advisor", async () => {
+    await withAgentDir({ contextMaxChars: 15_000 }, async (agentDir) => {
+      const { commands, pi } = harness();
+      registerCommands(pi);
+      await commands
+        .get("advisor")
+        .handler("contextMaxChars=5000", context(agentDir));
+      expect(savedConfig(agentDir).contextMaxChars).toBe(5000);
+      expect(loadConfig(context(agentDir))).toBeTruthy();
+      expect(contextMaxCharsRef).toBe(5000);
+    });
+  });
+
+  test("renders a manual sound verdict exactly like the tool response", async () => {
+    await withAgentDir({}, () => {
+      const { pi, renderers } = harness();
+      registerCommands(pi);
+      const render = (text: string) =>
+        renderers
+          .get("advisor-manual-result")(
+            { content: text, details: { advisor: "test/model", text } },
+            { expanded: true },
+            plainTheme
+          )
+          .render(120)
+          .join("\n");
+      expect(render("Verdict: sound\n\nNothing to change.")).toContain(
+        "◆ ADVISOR · SOUND"
+      );
+      expect(render("Consider reverting the migration.")).toContain(
+        "◆ ADVISOR RESPONSE"
+      );
+    });
+  });
+});
+
+describe("Advisor settings navigation and gate parsing regressions", () => {
+  const selectorTheme = {
+    bold: (text: string) => text,
+    fg: (_color: string, text: string) => text,
+  } as any;
+
+  // The Simple mode row animates a per-character gradient while enabled.
+  const plain = (selector: any) =>
+    selector.render(100).join("\n").replace(SGR_CODE, "");
+
+  const openSelector = (initial: any) => {
+    const saved: any[] = [];
+    const selector = new AdvisorSettingsSelector({
+      effortLevels: ["Default (Model Default)", "low", "high"],
+      initial: {
+        collapseResponses: false,
+        completionGate: true,
+        contextMaxChars: 15_000,
+        effort: "Default (Model Default)",
+        failureGate: true,
+        planGate: true,
+        ...initial,
+      },
+      onCancel: () => undefined,
+      onSave: (value: any) => saved.push(value),
+      presets: [
+        { description: "none", label: "0", value: 0 },
+        { description: "10k", label: "10k", value: 10_000 },
+        { description: "15k", label: "15k", value: 15_000 },
+      ],
+      theme: selectorTheme,
+      tui: { requestRender: () => undefined },
+    } as any);
+    return { saved, selector };
+  };
+
+  test("keeps the cursor on Simple mode across a mode toggle", () => {
+    const { selector } = openSelector({
+      contextMaxChars: 10_000,
+      simpleMode: false,
+    });
+    // Simple mode is the first row of the advanced list.
+    selector.handleInput("\u001b[C");
+    expect(plain(selector)).toMatch(SIMPLE_MODE_ON);
+    // The second toggle must return to advanced rather than move the slider.
+    selector.handleInput("\u001b[C");
+    const screen = plain(selector);
+    expect(screen).toMatch(SIMPLE_MODE_OFF);
+    expect(screen).toMatch(CONTEXT_10K);
+  });
+
+  test("keeps the cursor on Simple mode when leaving Simple mode", () => {
+    const { selector } = openSelector({
+      alwaysOn: false,
+      simpleMode: true,
+    });
+    // Simple mode is the second row while Simple mode is on.
+    selector.handleInput("\u001b[B");
+    selector.handleInput("\u001b[C");
+    expect(plain(selector)).toMatch(SIMPLE_MODE_OFF);
+    // The cursor must not have landed on Always on.
+    selector.handleInput("\u001b[C");
+    const screen = plain(selector);
+    expect(screen).toMatch(SIMPLE_MODE_ON);
+    expect(screen).toMatch(ALWAYS_ON_OFF);
+  });
+
+  test("treats a quoted decision inside a fenced example as illustrative", () => {
+    const result = parseAutomaticDecision(
+      "Decision: revise\n\nUse this format:\n\n```\nDecision: proceed\n```\n\nThen retry."
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.decision).toBe("revise");
+    }
+  });
+
+  test("still rejects a real second decision outside a fenced example", () => {
+    const result = parseAutomaticDecision(
+      "Decision: revise\n\n```\nDecision: proceed\n```\n\nDecision: blocked"
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.category).toBe("contradictory-decision");
+    }
+  });
+
+  test("never sends an empty Advisor request body", () => {
+    expect(advisorMessageText("", undefined).trim().length).toBeGreaterThan(0);
+    expect(advisorMessageText("", "Focus")).toContain("Focus");
+    expect(advisorMessageText("history", undefined)).toContain(
+      "<conversation>"
+    );
+  });
+
+  test("clears a stale block when Simple mode takes over", async () => {
+    let toolCall: any;
+    const mockPi = {
+      getActiveTools: () => ["ask_advisor"],
+      on(event: string, handler: any) {
+        if (event === "tool_call") {
+          toolCall = handler;
+        }
+      },
+      registerCommand: () => undefined,
+      registerMessageRenderer: () => undefined,
+      registerTool: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+
+    // loadConfig runs per tool call, so the mode must come from a real file.
+    const projectDir = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
+    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    const configPath = join(projectDir, ".pi", "advisor.json");
+    const ctx = {
+      cwd: projectDir,
+      hasUI: false,
+      isProjectTrusted: () => true,
+    } as any;
+
+    try {
+      writeFileSync(configPath, JSON.stringify({ simpleMode: false }));
+      resetConfigCache();
+      advisorSessionState.block("earlier gate failure");
+      expect(
+        toolCall({ input: {}, toolCallId: "1", toolName: "read" }, ctx)
+      ).toMatchObject({ block: true });
+
+      writeFileSync(configPath, JSON.stringify({ simpleMode: true }));
+      resetConfigCache();
+      expect(
+        await toolCall({ input: {}, toolCallId: "2", toolName: "read" }, ctx)
+      ).toBeUndefined();
+      expect(advisorSessionState.blocked).toBe(false);
+    } finally {
+      resetConfigCache();
+      rmSync(projectDir, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("Advisor argument persistence", () => {
+  test("does not persist arguments that name an unusable model", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({ contextMaxChars: 15_000, executor: "good/executor" })
+    );
+    resetConfigCache();
+    const commands = new Map<string, any>();
+    const notes: string[] = [];
+    const mockPi = {
+      getActiveTools: () => ["ask_advisor"],
+      on: () => undefined,
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      registerEntryRenderer: () => undefined,
+      registerMessageRenderer: () => undefined,
+      setActiveTools: () => undefined,
+      setModel: () => Promise.resolve(true),
+      setThinkingLevel: () => undefined,
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerCommands(mockPi);
+      await commands.get("advisor").handler("executor=missing/model", {
+        cwd: agentDir,
+        hasUI: true,
+        isProjectTrusted: () => false,
+        modelRegistry: {
+          find: (provider: string) =>
+            provider === "missing" ? undefined : { id: "x", provider },
+          getApiKeyAndHeaders: () =>
+            Promise.resolve({ apiKey: "key", ok: true }),
+        },
+        ui: { notify: (message: string) => notes.push(message) },
+      } as any);
+
+      expect(notes.join("\n")).toContain("Executor model not found");
+      expect(
+        JSON.parse(readFileSync(join(agentDir, "advisor.json"), "utf8"))
+          .executor
+      ).toBe("good/executor");
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
   });
 });

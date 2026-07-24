@@ -256,10 +256,18 @@ const selectRecentEntries = (entries: string[], maxChars: number): string => {
     return joined;
   }
   const selected: string[] = [];
+  // Track the joined length instead of re-joining the accumulator each step;
+  // long branches with a large maxChars are otherwise quadratic in bytes.
+  let selectedLength = 0;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const candidate = [entries[index], ...selected].join(separator);
-    if (candidate.length <= maxChars || selected.length === 0) {
-      selected.unshift(entries[index]);
+    const entry = entries[index];
+    const candidateLength =
+      selectedLength +
+      entry.length +
+      (selected.length === 0 ? 0 : separator.length);
+    if (candidateLength <= maxChars || selected.length === 0) {
+      selected.unshift(entry);
+      selectedLength = candidateLength;
     } else {
       break;
     }

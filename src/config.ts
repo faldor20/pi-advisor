@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   CONFIG_DIR_NAME,
@@ -514,6 +514,43 @@ const readConfig = (path: string): AdvisorConfig => {
   }
 };
 
+// loadConfig runs on every tool call and every consultation. Caching the parsed
+// file by path and stat identity removes that read and parse from the hot path
+// while still applying the full reset-then-apply sequence on each call.
+let configCache:
+  | { config: AdvisorConfig; identity: string; path: string }
+  | undefined;
+
+/** Drops the parsed-configuration cache; the next load re-reads from disk. */
+export const resetConfigCache = () => {
+  configCache = undefined;
+};
+
+/**
+ * Nanosecond timestamps plus size and inode so a same-millisecond or
+ * same-size external rewrite cannot be served from the cache. An unstattable
+ * path yields a unique value, which always forces a re-read.
+ */
+const configIdentity = (path: string): string => {
+  try {
+    const stats = statSync(path, { bigint: true });
+    return `${stats.mtimeNs}:${stats.ctimeNs}:${stats.size}:${stats.ino}:${stats.dev}`;
+  } catch {
+    return `unstattable:${process.hrtime.bigint()}`;
+  }
+};
+
+const readConfigCached = (path: string): AdvisorConfig => {
+  const identity = configIdentity(path);
+  const cached = configCache;
+  if (cached && cached.path === path && cached.identity === identity) {
+    return cached.config;
+  }
+  const config = readConfig(path);
+  configCache = { config, identity, path };
+  return config;
+};
+
 export const loadConfig = (ctx: ExtensionContext) => {
   resetDefaults();
   const path = configPaths(ctx).find(
@@ -523,7 +560,7 @@ export const loadConfig = (ctx: ExtensionContext) => {
   if (!path) {
     return null;
   }
-  applyConfig(readConfig(path));
+  applyConfig(readConfigCached(path));
   return path;
 };
 
@@ -574,6 +611,7 @@ export const saveConfig = (ctx: ExtensionContext) => {
     simpleMode: simpleModeRef,
   };
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+  resetConfigCache();
   return path;
 };
 
