@@ -36,7 +36,7 @@ Restart or reload Pi after installation, then run `/advisor` in a session.
 
 1. Run `/advisor` to enable the flow and register `ask_advisor`.
 2. Run `/advisor-models` to choose the Executor and Advisor models.
-3. Run `/advisor-settings` to set context, gates, privacy controls, and output limits.
+3. Run `/advisor-settings` to set Simple mode, persistent activation, context, gates, privacy controls, and output limits.
 
 Enable with models in one command when preferred:
 
@@ -62,7 +62,7 @@ The Executor calls `ask_advisor({})` for a general review of the current task an
 
 Use the Advisor after the Executor has investigated and formed a candidate direction. It is intended to challenge assumptions, expose risks, and confirm the next verification step—not to replace the Executor's work.
 
-Normal consultations preserve the provider's final Markdown. They do not parse a verdict or block execution.
+Normal consultations preserve the provider's final Markdown and never block execution. When the Advisor has no material concern or recommendation, it may begin with the exact first line `Verdict: sound`; Pi renders that response with the static `◆ ADVISOR · SOUND` header.
 
 ## Automatic loop gate
 
@@ -125,7 +125,9 @@ All fields are optional. This example shows the available settings and their nor
   "advisorBlockOnBlocked": true,
   "gateFailureMode": "block-session",
 
-  "advisorSessionSummary": true,
+  "advisorSessionSummary": false,
+  "simpleMode": false,
+  "alwaysOn": false,
   "advisorHerdrIntegration": true,
   "advisorToolResultMaxLines": 2000,
   "advisorToolResultMaxBytes": 51200,
@@ -137,6 +139,12 @@ All fields are optional. This example shows the available settings and their nor
   }
 }
 ```
+
+### Simple mode and persistent activation
+
+- `simpleMode` defaults to `false`. When enabled, `ask_advisor` and `/advisor-manual` remain available for voluntary second opinions, while plan/failure/completion rules, loop gates, blocking, call budgets, and session summaries are disabled. Context limits, result caps, redaction, and tool disclosure policies still apply.
+- `alwaysOn` defaults to `false`. When enabled, Pi restores the configured Executor and activates `ask_advisor` for new, resumed, forked, and reloaded sessions. While the Advisor flow is active, a user `/model` selection becomes the persisted Executor for the next activation.
+- In Simple mode, settings keeps the Context window/history slider alongside Simple mode and Always on; advanced values remain saved and take effect when Simple mode is disabled.
 
 ### Context and limits
 
@@ -161,7 +169,7 @@ Redaction and output limits reduce accidental disclosure; they are not a data-cl
 
 ### Session summary and Herdr
 
-The optional Session Advisor Summary is local and in-memory only. It appears after a non-blocked settled run and is never persisted.
+The optional Session Advisor Summary defaults to off. When enabled, it is local and in-memory only, appears after a non-blocked settled run, and is never persisted.
 
 It distinguishes regular Markdown advice from gate decisions and records the trigger, model, usage/cost when available, failures, budget, and execution effect.
 

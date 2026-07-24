@@ -609,12 +609,15 @@ describe("Extension Registration", () => {
         },
       },
     });
+    for (let index = 0; index < 2; index += 1) {
+      selector.handleInput("\u001b[B");
+    }
     selector.handleInput("\u001b[C");
     for (let index = 0; index < 18; index += 1) {
       selector.handleInput("\u001b[B");
     }
     selector.handleInput("\r");
-    expect(renderRequests).toBe(19);
+    expect(renderRequests).toBe(21);
     expect(saved.contextMaxChars).toBe(10_000);
     const screen = selector.render(80).join("\n");
     expect(screen).toContain("Advisor reasoning");
@@ -650,7 +653,7 @@ describe("Extension Registration", () => {
       } as any,
       tui: { requestRender: () => undefined },
     });
-    for (let index = 0; index < 18; index += 1) {
+    for (let index = 0; index < 20; index += 1) {
       selector.handleInput("\u001b[B");
     }
     selector.handleInput("\r");
@@ -679,7 +682,7 @@ describe("Extension Registration", () => {
       } as any,
       tui: { requestRender: () => undefined },
     });
-    for (let index = 0; index < 17; index += 1) {
+    for (let index = 0; index < 19; index += 1) {
       selector.handleInput("\u001b[B");
     }
     selector.handleInput("\r");
@@ -721,7 +724,7 @@ describe("Extension Registration", () => {
         requestRender: () => undefined,
       },
     });
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       selector.handleInput("\u001b[B");
     }
     selector.handleInput("\r");
@@ -760,7 +763,7 @@ describe("Extension Registration", () => {
           {},
           resolve
         );
-        for (let index = 0; index < 10; index += 1) {
+        for (let index = 0; index < 12; index += 1) {
           selector.handleInput("\u001b[B");
         }
         selector.handleInput("\u001b[C");

@@ -30,6 +30,7 @@ import {
   advisorRef,
   advisorSessionSummaryRef,
   contextMaxCharsRef,
+  isSimpleMode,
   loadConfig,
   splitRef,
 } from "./config.js";
@@ -96,6 +97,10 @@ export const renderAdvisorCallBox = (
 };
 
 const COLLAPSED_ADVICE_LINES = 12;
+const SOUND_VERDICT = /^Verdict:\s*sound\s*$/im;
+
+export const hasSoundVerdict = (advice: string) =>
+  SOUND_VERDICT.test(advice.split("\n").find((line) => line.trim()) ?? "");
 
 export const adviceForDisplay = (advice: string, expanded: boolean) => {
   if (!advisorCollapseResponsesRef || expanded) {
@@ -109,6 +114,11 @@ export const adviceForDisplay = (advice: string, expanded: boolean) => {
 };
 
 export const advisorInvocationGuidelines = () => {
+  if (isSimpleMode()) {
+    return [
+      "When uncertain and normal available tools cannot resolve it, call ask_advisor for a second opinion.",
+    ];
+  }
   const guidelines: string[] = [];
   if (advisorPlanGateRef) {
     guidelines.push(
@@ -141,6 +151,7 @@ export const ADVISOR_SYSTEM = [
   "You already have the relevant reconstructed conversation context. No question or other input from the Executor is needed for a general review.",
   "When no targeted focus is supplied, proactively review the task, risks, proposed direction, and validation from the context. Do not ask the Executor for a question, clarification, more input, or confirmation.",
   "The context may be truncated, so state any material uncertainty and make the best recommendation you can from what is present.",
+  "When the implementation is fully sound based on the supplied evidence and you have no material concern or recommended change, begin with exactly `Verdict: sound`. Do not use that verdict when uncertainty, a risk, or a recommendation remains.",
   "You do not act or take over planning. Answer the Executor's request directly in concise, human-readable Markdown. State uncertainty plainly and never claim verification that the supplied evidence does not show.",
 ].join(" ");
 
@@ -453,7 +464,7 @@ const reserveAdvisorCall = (
   session: AdvisorSessionState,
   reservedCalls: Set<string>
 ): ToolCallEventResult | undefined => {
-  if (event.toolName !== "ask_advisor") {
+  if (event.toolName !== "ask_advisor" || isSimpleMode()) {
     return;
   }
   if (!session.canConsult(advisorMaxCallsPerSessionRef)) {
@@ -521,6 +532,7 @@ const handleAutomaticGate = async (
   session: AdvisorSessionState
 ): Promise<ToolCallEventResult | undefined> => {
   if (
+    isSimpleMode() ||
     event.toolName === "ask_advisor" ||
     !advisorAutoLoopGateRef ||
     !session.recordToolCall(
@@ -665,7 +677,13 @@ const renderFinalAdvisorResult = (
     context.state.timerId = undefined;
   }
   const details = advisorResultDetails(result);
-  const lines = [theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE"))];
+  const advice = details?.text || textFrom(result.content);
+  const sound = hasSoundVerdict(advice);
+  const lines = [
+    sound
+      ? theme.fg("accent", theme.bold("◆ ADVISOR · SOUND"))
+      : theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE")),
+  ];
   if (details?.advisor) {
     lines.push(theme.fg("dim", `  ${details.advisor}`));
   }
@@ -678,13 +696,15 @@ const renderFinalAdvisorResult = (
       )
     );
   }
-  const advice =
-    details?.text ||
-    textFrom(result.content) ||
-    "(Advisor returned no advice.)";
+  const displayAdvice = advice || "(Advisor returned no advice.)";
   box.addChild(new Text(lines.join("\n"), 0, 0));
   box.addChild(
-    new Markdown(adviceForDisplay(advice, expanded), 0, 0, getMarkdownTheme())
+    new Markdown(
+      adviceForDisplay(displayAdvice, expanded),
+      0,
+      0,
+      getMarkdownTheme()
+    )
   );
 };
 
@@ -779,7 +799,9 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
     }
     loadConfig(ctx);
     const guidelines = advisorInvocationGuidelines();
-    const budget = session.remainingCalls(advisorMaxCallsPerSessionRef);
+    const budget = isSimpleMode()
+      ? undefined
+      : session.remainingCalls(advisorMaxCallsPerSessionRef);
     if (budget !== undefined) {
       guidelines.push(
         `Advisor calls remaining this session: ${budget}.\nReserve calls for material decisions, repeated failures, or final review.`
@@ -797,7 +819,7 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
       return;
     }
     loadConfig(ctx);
-    if (session.blocked) {
+    if (!isSimpleMode() && session.blocked) {
       return {
         block: true,
         reason: session.blockedReason ?? "Advisor session is blocked.",
@@ -811,7 +833,7 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
   });
 
   pi.on("agent_settled", (_event, ctx) => {
-    if (session.blocked || !advisorSessionSummaryRef) {
+    if (isSimpleMode() || session.blocked || !advisorSessionSummaryRef) {
       return;
     }
     const summary = session.summary(advisorMaxCallsPerSessionRef);
@@ -829,7 +851,7 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
     description:
       "Consult the on-demand Advisor model for strategic guidance. Call with an empty object for a context-aware review; add question only for a genuinely targeted focus.",
     async execute(_id, params, signal, onUpdate, ctx) {
-      if (!reservedCalls.delete(_id)) {
+      if (!(reservedCalls.delete(_id) || isSimpleMode())) {
         if (!session.canConsult(advisorMaxCallsPerSessionRef)) {
           throw new Error("Advisor call budget exhausted for this session.");
         }

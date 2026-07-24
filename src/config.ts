@@ -45,7 +45,9 @@ export let advisorBlockOnBlockedRef = true;
 export let advisorAutoLoopGateRef = true;
 export let advisorLoopThresholdRef = 3;
 export let advisorMaxCallsPerSessionRef: number | undefined;
-export let advisorSessionSummaryRef = true;
+export let advisorSessionSummaryRef = false;
+export let simpleModeRef = false;
+export let alwaysOnRef = false;
 export let advisorFailureModeRef: GateFailureMode = "block-session";
 export let advisorHerdrIntegrationRef = true;
 export let advisorToolResultMaxLinesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES;
@@ -107,6 +109,14 @@ export const setAdvisorMaxCallsPerSessionRef = (value: number | undefined) => {
 export const setAdvisorSessionSummaryRef = (enabled: boolean) => {
   advisorSessionSummaryRef = enabled;
 };
+export const setSimpleModeRef = (enabled: boolean) => {
+  simpleModeRef = enabled;
+};
+export const setAlwaysOnRef = (enabled: boolean) => {
+  alwaysOnRef = enabled;
+};
+/** Whether advanced Advisor automation is suppressed for this session. */
+export const isSimpleMode = () => simpleModeRef;
 export const isValidGateFailureMode = (
   value: unknown
 ): value is GateFailureMode =>
@@ -140,6 +150,7 @@ export const setAdvisorToolPoliciesRef = (policies: AdvisorToolPolicies) => {
  * imported mutable bindings, which can be snapshotted by extension loaders.
  */
 export const getAdvisorSettings = () => ({
+  alwaysOn: alwaysOnRef,
   autoLoopGate: advisorAutoLoopGateRef,
   blockOnBlocked: advisorBlockOnBlockedRef,
   collapseResponses: advisorCollapseResponsesRef,
@@ -155,6 +166,7 @@ export const getAdvisorSettings = () => ({
   planGate: advisorPlanGateRef,
   redactSecrets: advisorRedactSecretsRef,
   sessionSummary: advisorSessionSummaryRef,
+  simpleMode: simpleModeRef,
   toolPolicies: { ...advisorToolPoliciesRef },
   toolResultMaxBytes: advisorToolResultMaxBytesRef,
   toolResultMaxLines: advisorToolResultMaxLinesRef,
@@ -190,10 +202,12 @@ export interface AdvisorConfig {
   advisorToolPolicies?: AdvisorToolPolicies;
   advisorToolResultMaxBytes?: number;
   advisorToolResultMaxLines?: number;
+  alwaysOn?: boolean;
   contextMaxChars?: number;
   executor?: string;
   executorEffort?: string;
   gateFailureMode?: GateFailureMode;
+  simpleMode?: boolean;
 }
 
 const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
@@ -210,6 +224,8 @@ const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
   "advisorMaxCallsPerSession",
   "advisorPlanGate",
   "advisorSessionSummary",
+  "simpleMode",
+  "alwaysOn",
   "advisorToolResultMaxBytes",
   "advisorToolResultMaxLines",
   "advisorRedactSecrets",
@@ -227,6 +243,8 @@ const BOOLEAN_CONFIG_KEYS = [
   "advisorBlockOnBlocked",
   "advisorAutoLoopGate",
   "advisorSessionSummary",
+  "simpleMode",
+  "alwaysOn",
   "advisorHerdrIntegration",
   "advisorRedactSecrets",
 ] as const;
@@ -385,7 +403,9 @@ const resetDefaults = () => {
   advisorAutoLoopGateRef = true;
   advisorLoopThresholdRef = 3;
   advisorMaxCallsPerSessionRef = undefined;
-  advisorSessionSummaryRef = true;
+  advisorSessionSummaryRef = false;
+  simpleModeRef = false;
+  alwaysOnRef = false;
   advisorFailureModeRef = "block-session";
   advisorHerdrIntegrationRef = true;
   advisorToolResultMaxLinesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES;
@@ -458,6 +478,8 @@ const applyConfig = (config: AdvisorConfig) => {
     "advisorSessionSummary",
     setAdvisorSessionSummaryRef
   );
+  applyOptionalConfig(config, "simpleMode", setSimpleModeRef);
+  applyOptionalConfig(config, "alwaysOn", setAlwaysOnRef);
   applyOptionalConfig(config, "gateFailureMode", setAdvisorFailureModeRef);
   applyOptionalConfig(
     config,
@@ -547,7 +569,9 @@ export const saveConfig = (ctx: ExtensionContext) => {
     advisorToolPolicies: advisorToolPoliciesRef,
     advisorToolResultMaxBytes: advisorToolResultMaxBytesRef,
     advisorToolResultMaxLines: advisorToolResultMaxLinesRef,
+    alwaysOn: alwaysOnRef,
     gateFailureMode: advisorFailureModeRef,
+    simpleMode: simpleModeRef,
   };
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
   return path;

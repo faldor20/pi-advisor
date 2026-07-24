@@ -185,6 +185,7 @@ export interface ContextPreset {
 }
 
 export interface AdvisorSettings {
+  alwaysOn?: boolean;
   autoLoopGate?: boolean;
   blockOnBlocked?: boolean;
   collapseResponses: boolean;
@@ -200,10 +201,67 @@ export interface AdvisorSettings {
   planGate: boolean;
   redactSecrets?: boolean;
   sessionSummary?: boolean;
+  simpleMode?: boolean;
   toolPolicies?: Record<string, "full" | "summary" | "exclude">;
   toolResultMaxBytes?: number;
   toolResultMaxLines?: number;
 }
+
+type AdvisorSettingsRow =
+  | "simpleMode"
+  | "alwaysOn"
+  | "context"
+  | "effort"
+  | "planGate"
+  | "failureGate"
+  | "completionGate"
+  | "collapseResponses"
+  | "customRule"
+  | "blockOnBlocked"
+  | "autoLoopGate"
+  | "loopThreshold"
+  | "maxCallsPerSession"
+  | "sessionSummary"
+  | "failureMode"
+  | "herdrIntegration"
+  | "toolResultMaxLines"
+  | "toolResultMaxBytes"
+  | "redactSecrets"
+  | "toolPolicies"
+  | "save";
+
+const ADVANCED_ROWS: AdvisorSettingsRow[] = [
+  "context",
+  "effort",
+  "planGate",
+  "failureGate",
+  "completionGate",
+  "collapseResponses",
+  "customRule",
+  "blockOnBlocked",
+  "autoLoopGate",
+  "loopThreshold",
+  "maxCallsPerSession",
+  "sessionSummary",
+  "failureMode",
+  "herdrIntegration",
+  "toolResultMaxLines",
+  "toolResultMaxBytes",
+  "redactSecrets",
+  "toolPolicies",
+];
+
+const SIMPLE_MODE_GRADIENT_INTERVAL_MS = 100;
+// #763FCD and nearby lighter/darker purple steps; white is the moving shine.
+const SIMPLE_MODE_GRADIENT_COLORS = [
+  [125, 79, 205],
+  [143, 96, 218],
+  [160, 114, 230],
+  [178, 135, 238],
+  [195, 157, 245],
+  [168, 120, 230],
+  [143, 89, 215],
+] as const;
 
 export class AdvisorSettingsSelector implements Component, Focusable {
   private selectedRow: number;
@@ -215,6 +273,8 @@ export class AdvisorSettingsSelector implements Component, Focusable {
   private editingCustom: boolean;
   private editingPolicies: boolean;
   private policiesError: string | undefined;
+  private simpleModeGradientStartedAt: number | undefined;
+  private simpleModeGradientTimer: ReturnType<typeof setInterval> | undefined;
   private _focused = false;
   private readonly options: AdvisorSettingsSelectorOptions;
 
@@ -233,6 +293,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     this.editingPolicies = false;
     this.policiesError = undefined;
     this.options = options;
+    // Retain every advanced value even when Simple mode hides its controls.
     this.settings = { ...options.initial };
     this.contextIndex = Math.max(
       0,
@@ -246,6 +307,9 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         this.settings.effort || "Default (Model Default)"
       )
     );
+    if (this.settings.simpleMode) {
+      this.startSimpleModeGradient();
+    }
     this.customInput.onSubmit = (value) => {
       this.settings.customRule = value.trim() || undefined;
       this.editingCustom = false;
@@ -289,6 +353,21 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     this.options.tui.requestRender();
   }
 
+  /** Called by TUI teardown when it supports component disposal. */
+  dispose(): void {
+    this.stopSimpleModeGradient();
+  }
+
+  private visibleRows(): AdvisorSettingsRow[] {
+    return this.settings.simpleMode
+      ? ["context", "simpleMode", "alwaysOn", "save"]
+      : ["simpleMode", "alwaysOn", ...ADVANCED_ROWS, "save"];
+  }
+
+  private selectedRowId(): AdvisorSettingsRow {
+    return this.visibleRows()[this.selectedRow] ?? "simpleMode";
+  }
+
   private currentContext(): ContextPreset {
     const preset = this.options.presets.find(
       (item) => item.value === this.settings.contextMaxChars
@@ -301,33 +380,231 @@ export class AdvisorSettingsSelector implements Component, Focusable {
       }
     );
   }
+
   private currentEffort() {
     return this.settings.effort || "Default (Model Default)";
   }
-  private row(label: string, value: string, index: number) {
+
+  private row(label: string, value: string, rowId: AdvisorSettingsRow): string {
     const { theme } = this.options;
-    const prefix = index === this.selectedRow ? theme.fg("accent", "›") : " ";
+    const selected = rowId === this.selectedRowId();
+    const prefix = selected ? theme.fg("accent", "›") : " ";
     const text = `${prefix} ${label.padEnd(28)} ${value}`;
-    return index === this.selectedRow
+    if (
+      rowId === "simpleMode" &&
+      this.settings.simpleMode &&
+      this.simpleModeGradientStartedAt !== undefined
+    ) {
+      return `${prefix} ${this.rainbowGradient(label)}${" ".repeat(28 - label.length)} ${value}`;
+    }
+    return selected
       ? theme.fg("accent", theme.bold(text))
       : theme.fg("text", text);
   }
 
-  private policyInputRows(width: number): string[] {
-    if (!this.editingPolicies) {
-      return [];
+  private rainbowGradient(text: string): string {
+    const frame = Math.floor(
+      (Date.now() - (this.simpleModeGradientStartedAt ?? 0)) /
+        SIMPLE_MODE_GRADIENT_INTERVAL_MS
+    );
+    const shinePosition = frame % (text.length * 2);
+    return [...text]
+      .map((character, index) => {
+        const [baseRed, baseGreen, baseBlue] =
+          SIMPLE_MODE_GRADIENT_COLORS[
+            index % SIMPLE_MODE_GRADIENT_COLORS.length
+          ];
+        const distance = Math.abs(index - shinePosition);
+        let brightness = 0;
+        if (distance === 0) {
+          brightness = 0.7;
+        } else if (distance === 1) {
+          brightness = 0.35;
+        }
+        const red = Math.round(baseRed + (255 - baseRed) * brightness);
+        const green = Math.round(baseGreen + (255 - baseGreen) * brightness);
+        const blue = Math.round(baseBlue + (255 - baseBlue) * brightness);
+        return `\x1b[38;2;${red};${green};${blue}m${character}`;
+      })
+      .join("")
+      .concat("\x1b[0m");
+  }
+
+  private startSimpleModeGradient(): void {
+    this.stopSimpleModeGradient();
+    this.simpleModeGradientStartedAt = Date.now();
+    this.simpleModeGradientTimer = setInterval(() => {
+      this.options.tui.requestRender();
+    }, SIMPLE_MODE_GRADIENT_INTERVAL_MS);
+    this.simpleModeGradientTimer.unref?.();
+  }
+
+  private stopSimpleModeGradient(): void {
+    if (this.simpleModeGradientTimer) {
+      clearInterval(this.simpleModeGradientTimer);
+      this.simpleModeGradientTimer = undefined;
     }
+    this.simpleModeGradientStartedAt = undefined;
+  }
+
+  private save(): void {
+    this.stopSimpleModeGradient();
+    this.options.onSave({
+      ...this.settings,
+      contextMaxChars: this.currentContext().value,
+      effort: this.currentEffort(),
+    });
+  }
+
+  private cancel(): void {
+    this.stopSimpleModeGradient();
+    this.options.onCancel();
+  }
+
+  private advancedRows(width: number): string[] {
+    const onOff = (value: boolean) => (value ? "On" : "Off");
     const rows = [
-      `    ${this.policiesInput.render(Math.max(10, width - 6))[0] || ""}`,
+      this.row("Context window", this.currentContext().label, "context"),
+      this.row("Advisor reasoning", this.currentEffort(), "effort"),
+      this.row("Plan gate", onOff(this.settings.planGate), "planGate"),
+      this.row("Failure gate", onOff(this.settings.failureGate), "failureGate"),
+      this.row(
+        "Completion gate",
+        onOff(this.settings.completionGate),
+        "completionGate"
+      ),
+      this.row(
+        "Collapse long responses",
+        onOff(this.settings.collapseResponses),
+        "collapseResponses"
+      ),
+      this.row(
+        "Custom invocation",
+        this.settings.customRule || "None",
+        "customRule"
+      ),
+      this.row(
+        "Block on critical advice",
+        onOff(this.settings.blockOnBlocked ?? true),
+        "blockOnBlocked"
+      ),
+      this.row(
+        "Automatic loop gate",
+        onOff(this.settings.autoLoopGate ?? true),
+        "autoLoopGate"
+      ),
+      this.row(
+        "Loop threshold",
+        `After ${this.settings.loopThreshold ?? 3} repeats`,
+        "loopThreshold"
+      ),
+      this.row(
+        "Max Advisor calls/session",
+        this.settings.maxCallsPerSession === undefined
+          ? "∞"
+          : String(this.settings.maxCallsPerSession),
+        "maxCallsPerSession"
+      ),
+      this.row(
+        "Session Advisor Summary",
+        onOff(this.settings.sessionSummary ?? false),
+        "sessionSummary"
+      ),
+      this.row(
+        "Gate failure mode",
+        this.settings.failureMode ?? "block-session",
+        "failureMode"
+      ),
+      this.row(
+        "Herdr integration",
+        onOff(this.settings.herdrIntegration ?? true),
+        "herdrIntegration"
+      ),
+      this.row(
+        "Tool result lines",
+        String(this.settings.toolResultMaxLines ?? 2000),
+        "toolResultMaxLines"
+      ),
+      this.row(
+        "Tool result bytes",
+        String(this.settings.toolResultMaxBytes ?? 50 * 1024),
+        "toolResultMaxBytes"
+      ),
+      this.row(
+        "Redact common secrets",
+        onOff(this.settings.redactSecrets ?? false),
+        "redactSecrets"
+      ),
+      this.row(
+        "Tool disclosure policies",
+        Object.keys(this.settings.toolPolicies ?? {}).length
+          ? "Exact names configured"
+          : "All tools: full",
+        "toolPolicies"
+      ),
     ];
-    if (this.policiesError) {
-      rows.push(`    ${this.options.theme.fg("error", this.policiesError)}`);
+    if (this.editingCustom) {
+      rows.push(
+        `    ${this.customInput.render(Math.max(10, width - 6))[0] || ""}`
+      );
     }
+    if (this.editingPolicies) {
+      rows.push(
+        `    ${this.policiesInput.render(Math.max(10, width - 6))[0] || ""}`
+      );
+      if (this.policiesError) {
+        rows.push(`    ${this.options.theme.fg("error", this.policiesError)}`);
+      }
+    }
+    rows.push(this.row("Save changes", "", "save"));
     return rows;
   }
 
   render(width: number): string[] {
     const { theme, presets } = this.options;
+    const simpleMode = this.settings.simpleMode ?? false;
+    const modeRows = [
+      this.row("Simple mode", simpleMode ? "On" : "Off", "simpleMode"),
+      this.row("Always on", this.settings.alwaysOn ? "On" : "Off", "alwaysOn"),
+    ];
+    const lines = [theme.fg("accent", theme.bold("  Advisor settings")), ""];
+    if (simpleMode) {
+      const trackWidth = Math.max(24, Math.min(60, width - 4));
+      const positions = presets.map((_, index) =>
+        Math.round((index * (trackWidth - 1)) / Math.max(1, presets.length - 1))
+      );
+      const track = Array.from({ length: trackWidth }, () => "─");
+      track[positions[this.contextIndex]] = "▲";
+      const labels = Array.from({ length: trackWidth }, () => " ");
+      for (let index = 0; index < presets.length; index += 1) {
+        const { label } = presets[index];
+        const start = Math.max(
+          0,
+          Math.min(
+            trackWidth - label.length,
+            positions[index] - Math.floor(label.length / 2)
+          )
+        );
+        for (let char = 0; char < label.length; char += 1) {
+          labels[start + char] = label[char];
+        }
+      }
+      lines.push(
+        `  ${this.row("Context window", this.currentContext().label, "context")}`
+      );
+      lines.push(`  ${theme.fg("muted", "Recent history")}`);
+      lines.push(`  ${theme.fg("muted", track.join(""))}`);
+      lines.push(`  ${theme.fg("text", labels.join(""))}`);
+      lines.push("");
+      lines.push(...modeRows.map((line) => `  ${line}`));
+      lines.push(`  ${this.row("Save changes", "", "save")}`);
+      lines.push("");
+      lines.push(
+        `  ${theme.fg("muted", "↑/↓ select · ←/→ adjust · Enter saves · Esc cancels")}`
+      );
+      return lines.map((line) => truncateToWidth(line, width));
+    }
+
     const trackWidth = Math.max(24, Math.min(60, width - 4));
     const positions = presets.map((_, index) =>
       Math.round((index * (trackWidth - 1)) / Math.max(1, presets.length - 1))
@@ -349,97 +626,18 @@ export class AdvisorSettingsSelector implements Component, Focusable {
       }
     }
     const heading = `Recent history${" ".repeat(Math.max(1, trackWidth - "Recent history".length - "Full branch".length))}Full branch`;
-    const onOff = (value: boolean) => (value ? "On" : "Off");
-    const rows = [
-      this.row("Context window", this.currentContext().label, 0),
-      this.row("Advisor reasoning", this.currentEffort(), 1),
-      this.row("Plan gate", onOff(this.settings.planGate), 2),
-      this.row("Failure gate", onOff(this.settings.failureGate), 3),
-      this.row("Completion gate", onOff(this.settings.completionGate), 4),
-      this.row(
-        "Collapse long responses",
-        onOff(this.settings.collapseResponses),
-        5
-      ),
-      this.row("Custom invocation", this.settings.customRule || "None", 6),
-      this.row(
-        "Block on critical advice",
-        onOff(this.settings.blockOnBlocked ?? true),
-        7
-      ),
-      this.row(
-        "Automatic loop gate",
-        onOff(this.settings.autoLoopGate ?? true),
-        8
-      ),
-      this.row(
-        "Loop threshold",
-        `After ${this.settings.loopThreshold ?? 3} repeats`,
-        9
-      ),
-      this.row(
-        "Max Advisor calls/session",
-        this.settings.maxCallsPerSession === undefined
-          ? "∞"
-          : String(this.settings.maxCallsPerSession),
-        10
-      ),
-      this.row(
-        "Session Advisor Summary",
-        onOff(this.settings.sessionSummary ?? true),
-        11
-      ),
-      this.row(
-        "Gate failure mode",
-        this.settings.failureMode ?? "block-session",
-        12
-      ),
-      this.row(
-        "Herdr integration",
-        onOff(this.settings.herdrIntegration ?? true),
-        13
-      ),
-      this.row(
-        "Tool result lines",
-        String(this.settings.toolResultMaxLines ?? 2000),
-        14
-      ),
-      this.row(
-        "Tool result bytes",
-        String(this.settings.toolResultMaxBytes ?? 50 * 1024),
-        15
-      ),
-      this.row(
-        "Redact common secrets",
-        onOff(this.settings.redactSecrets ?? false),
-        16
-      ),
-      this.row(
-        "Tool disclosure policies",
-        Object.keys(this.settings.toolPolicies ?? {}).length
-          ? "Exact names configured"
-          : "All tools: full",
-        17
-      ),
-    ];
-    if (this.editingCustom) {
-      rows.push(
-        `    ${this.customInput.render(Math.max(10, width - 6))[0] || ""}`
-      );
-    }
-    rows.push(...this.policyInputRows(width));
-    rows.push(this.row("Save changes", "", 18));
-    return [
-      theme.fg("accent", theme.bold("  Advisor settings")),
-      "",
-      `  ${theme.fg("muted", heading)}`,
-      `  ${theme.fg("muted", track.join(""))}`,
-      `  ${theme.fg("text", labels.join(""))}`,
-      "",
-      ...rows.map((line) => `  ${line}`),
-      "",
-      `  ${theme.fg("muted", "↑/↓ select · ←/→ adjust · Enter edits or saves · Esc cancels")}`,
-    ].map((line) => truncateToWidth(line, width));
+    lines.push(`  ${theme.fg("muted", heading)}`);
+    lines.push(`  ${theme.fg("muted", track.join(""))}`);
+    lines.push(`  ${theme.fg("text", labels.join(""))}`);
+    lines.push("");
+    lines.push(
+      ...[...modeRows, ...this.advancedRows(width)].map((line) => `  ${line}`)
+    );
+    lines.push("");
+    lines.push(
+      `  ${theme.fg("muted", "↑/↓ select · ←/→ adjust · Enter edits or saves · Esc cancels")}`
+    );
+    return lines.map((line) => truncateToWidth(line, width));
   }
 
   handleInput(keyData: string): void {
@@ -455,20 +653,24 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     if (matchesKey(keyData, Key.up)) {
       this.selectedRow = Math.max(0, this.selectedRow - 1);
     } else if (matchesKey(keyData, Key.down)) {
-      this.selectedRow = Math.min(18, this.selectedRow + 1);
+      this.selectedRow = Math.min(
+        this.visibleRows().length - 1,
+        this.selectedRow + 1
+      );
     } else if (matchesKey(keyData, Key.left)) {
       this.adjust(-1);
     } else if (matchesKey(keyData, Key.right)) {
       this.adjust(1);
     } else if (matchesKey(keyData, Key.enter)) {
-      if (this.selectedRow === 6) {
+      const row = this.selectedRowId();
+      if (row === "customRule") {
         this.editingCustom = true;
         this.customInput.setValue(this.settings.customRule || "");
         this.customInput.focused = this.focused;
         tui.requestRender();
         return;
       }
-      if (this.selectedRow === 17) {
+      if (row === "toolPolicies") {
         this.editingPolicies = true;
         this.policiesError = undefined;
         this.policiesInput.setValue(
@@ -478,17 +680,13 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         tui.requestRender();
         return;
       }
-      if (this.selectedRow === 18) {
-        this.options.onSave({
-          ...this.settings,
-          contextMaxChars: this.currentContext().value,
-          effort: this.currentEffort(),
-        });
+      if (row === "save") {
+        this.save();
         return;
       }
       this.adjust(1);
     } else if (matchesKey(keyData, Key.escape)) {
-      this.options.onCancel();
+      this.cancel();
       return;
     } else {
       return;
@@ -496,9 +694,20 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     tui.requestRender();
   }
 
-  private adjust(direction: number) {
-    switch (this.selectedRow) {
-      case 0:
+  private adjust(direction: number): void {
+    switch (this.selectedRowId()) {
+      case "simpleMode":
+        this.settings.simpleMode = !(this.settings.simpleMode ?? false);
+        if (this.settings.simpleMode) {
+          this.startSimpleModeGradient();
+        } else {
+          this.stopSimpleModeGradient();
+        }
+        break;
+      case "alwaysOn":
+        this.settings.alwaysOn = !(this.settings.alwaysOn ?? false);
+        break;
+      case "context":
         this.contextIndex = Math.max(
           0,
           Math.min(
@@ -509,7 +718,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         this.settings.contextMaxChars =
           this.options.presets[this.contextIndex].value;
         break;
-      case 1:
+      case "effort":
         this.effortIndex = Math.max(
           0,
           Math.min(
@@ -519,31 +728,31 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         );
         this.settings.effort = this.options.effortLevels[this.effortIndex];
         break;
-      case 2:
+      case "planGate":
         this.settings.planGate = !this.settings.planGate;
         break;
-      case 3:
+      case "failureGate":
         this.settings.failureGate = !this.settings.failureGate;
         break;
-      case 4:
+      case "completionGate":
         this.settings.completionGate = !this.settings.completionGate;
         break;
-      case 5:
+      case "collapseResponses":
         this.settings.collapseResponses = !this.settings.collapseResponses;
         break;
-      case 7:
+      case "blockOnBlocked":
         this.settings.blockOnBlocked = !(this.settings.blockOnBlocked ?? true);
         break;
-      case 8:
+      case "autoLoopGate":
         this.settings.autoLoopGate = !(this.settings.autoLoopGate ?? true);
         break;
-      case 9:
+      case "loopThreshold":
         this.settings.loopThreshold = Math.max(
           2,
           (this.settings.loopThreshold ?? 3) + direction
         );
         break;
-      case 10: {
+      case "maxCallsPerSession": {
         const values = [undefined, 0, 1, 2, 3, 5, 10, 25, 50];
         const index = Math.max(
           0,
@@ -553,10 +762,10 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
       }
-      case 11:
-        this.settings.sessionSummary = !(this.settings.sessionSummary ?? true);
+      case "sessionSummary":
+        this.settings.sessionSummary = !(this.settings.sessionSummary ?? false);
         break;
-      case 12: {
+      case "failureMode": {
         const modes: AdvisorSettings["failureMode"][] = [
           "block-session",
           "block-tool",
@@ -570,15 +779,15 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           modes[Math.max(0, Math.min(modes.length - 1, index + direction))];
         break;
       }
-      case 13:
+      case "herdrIntegration":
         this.settings.herdrIntegration = !(
           this.settings.herdrIntegration ?? true
         );
         break;
-      case 16:
+      case "redactSecrets":
         this.settings.redactSecrets = !(this.settings.redactSecrets ?? false);
         break;
-      case 14: {
+      case "toolResultMaxLines": {
         const values = [0, 500, 1000, 2000, 5000, 10_000];
         const index = Math.max(
           0,
@@ -588,7 +797,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
       }
-      case 15: {
+      case "toolResultMaxBytes": {
         const values = [0, 10 * 1024, 50 * 1024, 100 * 1024, 500 * 1024];
         const index = Math.max(
           0,

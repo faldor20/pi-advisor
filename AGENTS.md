@@ -31,7 +31,7 @@ git -c diff.stat=false diff --no-ext-diff --check --no-stat
 - MUST use the appropriate UI surface: rendered custom message for Advisor activity, tool result for tool outcomes, notification only for brief status/errors.
 - MUST add tests for every setting: defaults, validation, persistence, and UI navigation.
 - MUST keep session summaries local and ephemeral; MUST NOT send them to Herdr or persist them.
-- MUST document released user-facing behavior in README and CHANGELOG; MUST NOT document internal iterations or unreleased defects.
+- MUST document released user-facing behavior in README and CHANGELOG; MUST NOT document internal iterations, implementation reversions, or unreleased defects. Describe the delivered user outcome, not what was temporarily changed during development.
 - MUST preserve public `advisor.json` fields and unknown fields when saving configuration.
 - MUST run all checks above before reporting completion. MUST NOT commit or push unless asked. MUST NOT create or push release tags: CI manages tagging from `package.json`.
 

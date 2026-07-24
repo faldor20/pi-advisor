@@ -23,9 +23,11 @@ import {
   advisorHerdrIntegrationRef,
   advisorRedactSecretsRef,
   advisorRef,
+  advisorSessionSummaryRef,
   advisorToolPoliciesRef,
   advisorToolResultMaxBytesRef,
   advisorToolResultMaxLinesRef,
+  alwaysOnRef,
   contextMaxCharsRef,
   DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES,
   DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES,
@@ -55,9 +57,12 @@ import {
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
   setAdvisorToolResultMaxLinesRef,
+  setAlwaysOnRef,
   setContextMaxCharsRef,
   setExecutorEffortRef,
   setExecutorRef,
+  setSimpleModeRef,
+  simpleModeRef,
   splitRef,
   validateConfig,
 } from "../src/config.js";
@@ -179,6 +184,9 @@ describe("Config Module", () => {
 
   test("uses safe defaults and rejects unknown configuration keys with remediation", () => {
     expect(advisorFailureModeRef).toBe("block-session");
+    expect(simpleModeRef).toBe(false);
+    expect(alwaysOnRef).toBe(false);
+    expect(advisorSessionSummaryRef).toBe(false);
     expect(advisorHerdrIntegrationRef).toBe(true);
     expect(advisorToolResultMaxLinesRef).toBe(
       DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES
@@ -246,6 +254,8 @@ describe("Config Module", () => {
       setAdvisorLoopThresholdRef(5);
       setAdvisorMaxCallsPerSessionRef(2);
       setAdvisorSessionSummaryRef(false);
+      setSimpleModeRef(true);
+      setAlwaysOnRef(true);
       setAdvisorFailureModeRef("warn-and-continue");
       setAdvisorHerdrIntegrationRef(false);
       setAdvisorToolResultMaxLinesRef(100);
@@ -268,9 +278,11 @@ describe("Config Module", () => {
         advisorToolPolicies: { bash: "summary", deploy: "exclude" },
         advisorToolResultMaxBytes: 10_240,
         advisorToolResultMaxLines: 100,
+        alwaysOn: true,
         contextMaxChars: Number.MAX_SAFE_INTEGER,
         futureSetting: true,
         gateFailureMode: "warn-and-continue",
+        simpleMode: true,
       });
     } finally {
       if (previousAgentDir === undefined) {

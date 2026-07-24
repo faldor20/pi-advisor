@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.4
+
+### Added
+
+- Simple mode for voluntary `ask_advisor` and `/advisor-manual` consultations without automatic gates, blocks, budgets, or session summaries; privacy and context controls remain active.
+- Persistent `alwaysOn` Advisor-flow activation, including Executor restoration and `/model` synchronization while active.
+- Simple-mode settings for voluntary Advisor use and persistent activation.
+- Static `◆ ADVISOR · SOUND` rendering for ordinary Advisor replies beginning with `Verdict: sound`.
+
+### Changed
+
+- Session Advisor Summary now defaults to off.
+
 ## 0.2.3
 
 ### Added

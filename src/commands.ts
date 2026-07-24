@@ -8,9 +8,11 @@ import {
   advisorEffortRef,
   advisorMaxCallsPerSessionRef,
   advisorRef,
+  alwaysOnRef,
   executorEffortRef,
   executorRef,
   getAdvisorSettings,
+  isSimpleMode,
   loadConfig,
   parseArgs,
   saveConfig,
@@ -32,9 +34,11 @@ import {
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
   setAdvisorToolResultMaxLinesRef,
+  setAlwaysOnRef,
   setContextMaxCharsRef,
   setExecutorEffortRef,
   setExecutorRef,
+  setSimpleModeRef,
   splitRef,
 } from "./config.js";
 import { herdrAdvisorActivity, notifyHerdrAdvisorFailure } from "./herdr.js";
@@ -130,6 +134,7 @@ export const registerCommands = (
     ((ctx, question, signal) =>
       consultAdvisor(ctx, question, signal, undefined, "manual"));
   const manualConsultations = new Set<AbortController>();
+  let restoringExecutor = false;
 
   const startManualConsultation = (
     ctx: ExtensionContext,
@@ -208,13 +213,24 @@ export const registerCommands = (
       notify(ctx, `Executor model not found: ${executorRef}`, "error");
       return;
     }
-    if (!findConfiguredModel(ctx, advisorRef)) {
+    const advisor = findConfiguredModel(ctx, advisorRef);
+    if (!advisor) {
       notify(ctx, `Advisor model not found: ${advisorRef}`, "error");
       return;
     }
-    if (!(await pi.setModel(executor))) {
-      notify(ctx, `No API key for Executor ${executorRef}`, "error");
+    const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
+    if (!(advisorAuth.ok && advisorAuth.apiKey)) {
+      notify(ctx, `No API key for Advisor ${advisorRef}`, "error");
       return;
+    }
+    restoringExecutor = true;
+    try {
+      if (!(await pi.setModel(executor))) {
+        notify(ctx, `No API key for Executor ${executorRef}`, "error");
+        return;
+      }
+    } finally {
+      restoringExecutor = false;
     }
     if (executorEffortRef) {
       pi.setThinkingLevel(executorEffortRef as ThinkingLevel);
@@ -267,6 +283,21 @@ export const registerCommands = (
     }
   );
 
+  pi.on("session_start", async (_event, ctx) => {
+    loadConfig(ctx);
+    if (alwaysOnRef) {
+      await activateAdvisor("", ctx);
+    }
+  });
+
+  pi.on("model_select", (event, ctx) => {
+    if (!flowEnabled() || restoringExecutor) {
+      return;
+    }
+    setExecutorRef(`${event.model.provider}/${event.model.id}`);
+    saveConfig(ctx);
+  });
+
   pi.on("session_shutdown", () => {
     for (const controller of manualConsultations) {
       controller.abort();
@@ -280,13 +311,20 @@ export const registerCommands = (
       "Consult the Advisor in parallel; accepts an optional focused question and fans its response out to the Executor",
     handler: (args, ctx) => {
       loadConfig(ctx);
-      if (!advisorSessionState.canConsult(advisorMaxCallsPerSessionRef)) {
+      if (
+        !(
+          isSimpleMode() ||
+          advisorSessionState.canConsult(advisorMaxCallsPerSessionRef)
+        )
+      ) {
         const message = "Advisor call budget exhausted for this session.";
         notify(ctx, message, "warning");
         notifyHerdrAdvisorFailure("Advisor budget exhausted", message);
         return Promise.resolve();
       }
-      advisorSessionState.consumeCall();
+      if (!isSimpleMode()) {
+        advisorSessionState.consumeCall();
+      }
       const question = resolveAdvisorRequest(args);
       // A single visible progress surface avoids competing consultations overwriting
       // each other's streamed state. A newer manual request replaces the previous one.
@@ -427,7 +465,9 @@ export const registerCommands = (
       setAdvisorAutoLoopGateRef(settings.autoLoopGate ?? true);
       setAdvisorLoopThresholdRef(settings.loopThreshold ?? 3);
       setAdvisorMaxCallsPerSessionRef(settings.maxCallsPerSession);
-      setAdvisorSessionSummaryRef(settings.sessionSummary ?? true);
+      setAdvisorSessionSummaryRef(settings.sessionSummary ?? false);
+      setSimpleModeRef(settings.simpleMode ?? false);
+      setAlwaysOnRef(settings.alwaysOn ?? false);
       setAdvisorFailureModeRef(settings.failureMode ?? "block-session");
       setAdvisorHerdrIntegrationRef(settings.herdrIntegration ?? true);
       setAdvisorToolResultMaxLinesRef(settings.toolResultMaxLines ?? 2000);
