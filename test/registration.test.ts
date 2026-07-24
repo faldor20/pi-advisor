@@ -50,6 +50,25 @@ const ALWAYS_ON_OFF = /Always on\s+Off/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal SGR codes
 const SGR_CODE = /\u001b\[[0-9;]*m/g;
 
+// Row navigation is resolved by label so that adding a settings row cannot
+// silently retarget an existing test's keystrokes.
+const focusSettingsRow = (selector: any, label: string): number => {
+  for (let presses = 0; presses < 60; presses += 1) {
+    const screen = selector.render(120).join("\n").replace(SGR_CODE, "");
+    if (screen.includes(`› ${label}`)) {
+      return presses;
+    }
+    selector.handleInput("\u001b[B");
+  }
+  throw new Error(`Settings row not reachable: ${label}`);
+};
+
+const saveViaKeyboard = (selector: any): number => {
+  const presses = focusSettingsRow(selector, "Save changes");
+  selector.handleInput("\r");
+  return presses;
+};
+
 describe("Herdr Advisor activity", () => {
   test("constructs sanitized request notifications within Herdr limits", () => {
     const request = createHerdrNotificationRequest(
@@ -629,11 +648,9 @@ describe("Extension Registration", () => {
       selector.handleInput("\u001b[B");
     }
     selector.handleInput("\u001b[C");
-    for (let index = 0; index < 18; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
-    selector.handleInput("\r");
-    expect(renderRequests).toBe(21);
+    const downsToSave = saveViaKeyboard(selector);
+    // Two downs plus one right plus the downs to Save; Enter saves without a render.
+    expect(renderRequests).toBe(3 + downsToSave);
     expect(saved.contextMaxChars).toBe(10_000);
     const screen = selector.render(80).join("\n");
     expect(screen).toContain("Advisor reasoning");
@@ -669,10 +686,7 @@ describe("Extension Registration", () => {
       } as any,
       tui: { requestRender: () => undefined },
     });
-    for (let index = 0; index < 20; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
-    selector.handleInput("\r");
+    saveViaKeyboard(selector);
     expect(saved).toMatchObject({
       redactSecrets: true,
       toolPolicies: { bash: "summary", deploy: "exclude" },
@@ -698,9 +712,7 @@ describe("Extension Registration", () => {
       } as any,
       tui: { requestRender: () => undefined },
     });
-    for (let index = 0; index < 19; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
+    focusSettingsRow(selector, "Tool disclosure policies");
     selector.handleInput("\r");
 
     (selector as any).policiesInput.onSubmit('{"bash":"invalid"}');
@@ -740,9 +752,7 @@ describe("Extension Registration", () => {
         requestRender: () => undefined,
       },
     });
-    for (let index = 0; index < 8; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
+    focusSettingsRow(selector, "Custom invocation");
     selector.handleInput("\r");
     selector.handleInput("d");
     selector.handleInput("e");
@@ -751,10 +761,7 @@ describe("Extension Registration", () => {
     selector.handleInput("o");
     selector.handleInput("y");
     selector.handleInput("\r");
-    for (let index = 0; index < 12; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
-    selector.handleInput("\r");
+    saveViaKeyboard(selector);
     expect(saved.customRule).toBe("deploy");
   });
 
@@ -779,14 +786,9 @@ describe("Extension Registration", () => {
           {},
           resolve
         );
-        for (let index = 0; index < 12; index += 1) {
-          selector.handleInput("\u001b[B");
-        }
+        focusSettingsRow(selector, "Max Advisor calls/session");
         selector.handleInput("\u001b[C");
-        for (let index = 0; index < 8; index += 1) {
-          selector.handleInput("\u001b[B");
-        }
-        selector.handleInput("\r");
+        saveViaKeyboard(selector);
       });
     const reopened = async (factory: any) =>
       new Promise<any>((resolve) => {

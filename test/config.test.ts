@@ -18,10 +18,13 @@ const UNKNOWN_CONFIG_KEY_PATTERN = /unknown key.*unexpected/;
 const INVALID_FAILURE_MODE_PATTERN =
   /block-session.*block-tool.*warn-and-continue/;
 const INVALID_TOOL_POLICIES_PATTERN = /advisorToolPolicies/;
+const INVALID_GIT_CONTEXT_PATTERN = /off.*summary.*full/;
 
 import {
   advisorEffortRef,
   advisorFailureModeRef,
+  advisorGitContextMaxCharsRef,
+  advisorGitContextRef,
   advisorHerdrIntegrationRef,
   advisorRedactSecretsRef,
   advisorRef,
@@ -31,6 +34,7 @@ import {
   advisorToolResultMaxLinesRef,
   alwaysOnRef,
   contextMaxCharsRef,
+  DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS,
   DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES,
   DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES,
   DEFAULT_CONTEXT_MAX_CHARS,
@@ -177,6 +181,55 @@ describe("Config Module", () => {
 
       loadConfig(ctx);
       expect(contextMaxCharsRef).toBe(20_000);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
+  test("defaults repository context to file names only", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    writeFileSync(join(agentDir, "advisor.json"), JSON.stringify({}));
+    resetConfigCache();
+
+    try {
+      loadConfig({ cwd: tmpdir(), isProjectTrusted: () => false } as any);
+      expect(advisorGitContextRef).toBe("summary");
+      expect(advisorGitContextMaxCharsRef).toBe(
+        DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS
+      );
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
+  test("rejects an unknown repository context level", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({ advisorGitContext: "everything" })
+    );
+    resetConfigCache();
+
+    try {
+      expect(() =>
+        loadConfig({ cwd: tmpdir(), isProjectTrusted: () => false } as any)
+      ).toThrow(INVALID_GIT_CONTEXT_PATTERN);
     } finally {
       if (previousAgentDir === undefined) {
         delete process.env[AGENT_DIR_ENV];

@@ -7,6 +7,11 @@ import {
   type ExtensionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
+import {
+  GIT_CONTEXT_LEVELS,
+  type GitContextLevel,
+  isValidGitContextLevel,
+} from "./git.js";
 
 export const FALLBACK_EXECUTOR = "aikeys/claude-sonnet-5";
 export const FALLBACK_ADVISOR = "aikeys/claude-fable-5";
@@ -14,6 +19,7 @@ export const DEFAULT_CONTEXT_MAX_CHARS = 15_000;
 export const MAX_CONTEXT_MAX_CHARS = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES = DEFAULT_MAX_LINES;
 export const DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES = DEFAULT_MAX_BYTES;
+export const DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS = 20_000;
 export type AdvisorToolPolicy = "full" | "summary" | "exclude";
 export type AdvisorToolPolicies = Record<string, AdvisorToolPolicy>;
 export const ADVISOR_TOOL_POLICIES: AdvisorToolPolicy[] = [
@@ -53,6 +59,8 @@ export let advisorHerdrIntegrationRef = true;
 export let advisorToolResultMaxLinesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES;
 export let advisorToolResultMaxBytesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES;
 export let advisorRedactSecretsRef = false;
+export let advisorGitContextRef: GitContextLevel = "summary";
+export let advisorGitContextMaxCharsRef = DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS;
 export let advisorToolPoliciesRef: AdvisorToolPolicies = {};
 
 export const setExecutorRef = (ref: string) => {
@@ -141,6 +149,12 @@ export const setAdvisorToolResultMaxBytesRef = (value: number) => {
 export const setAdvisorRedactSecretsRef = (enabled: boolean) => {
   advisorRedactSecretsRef = enabled;
 };
+export const setAdvisorGitContextRef = (level: GitContextLevel) => {
+  advisorGitContextRef = level;
+};
+export const setAdvisorGitContextMaxCharsRef = (value: number) => {
+  advisorGitContextMaxCharsRef = value;
+};
 export const setAdvisorToolPoliciesRef = (policies: AdvisorToolPolicies) => {
   advisorToolPoliciesRef = { ...policies };
 };
@@ -160,6 +174,8 @@ export const getAdvisorSettings = () => ({
   effort: advisorEffortRef,
   failureGate: advisorFailureGateRef,
   failureMode: advisorFailureModeRef,
+  gitContext: advisorGitContextRef,
+  gitContextMaxChars: advisorGitContextMaxCharsRef,
   herdrIntegration: advisorHerdrIntegrationRef,
   loopThreshold: advisorLoopThresholdRef,
   maxCallsPerSession: advisorMaxCallsPerSessionRef,
@@ -193,6 +209,8 @@ export interface AdvisorConfig {
   advisorCustomInvocation?: string;
   advisorEffort?: string;
   advisorFailureGate?: boolean;
+  advisorGitContext?: GitContextLevel;
+  advisorGitContextMaxChars?: number;
   advisorHerdrIntegration?: boolean;
   advisorLoopThreshold?: number;
   advisorMaxCallsPerSession?: number;
@@ -219,6 +237,8 @@ const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
   "advisorCustomInvocation",
   "advisorEffort",
   "advisorFailureGate",
+  "advisorGitContext",
+  "advisorGitContextMaxChars",
   "advisorHerdrIntegration",
   "advisorLoopThreshold",
   "advisorMaxCallsPerSession",
@@ -347,6 +367,11 @@ const validateNumericValues = (config: ConfigRecord, path: string) => {
       isValidToolResultMaxBytes,
       "a non-negative safe integer",
     ],
+    [
+      "advisorGitContextMaxChars",
+      isValidToolResultMaxBytes,
+      "a non-negative safe integer",
+    ],
   ];
   for (const [key, isValid, description] of numericRules) {
     if (config[key] !== undefined && !isValid(config[key])) {
@@ -385,6 +410,16 @@ export const validateConfig = (
   ) {
     invalidConfigValue(path, "gateFailureMode", GATE_FAILURE_MODES.join(", "));
   }
+  if (
+    config.advisorGitContext !== undefined &&
+    !isValidGitContextLevel(config.advisorGitContext)
+  ) {
+    invalidConfigValue(
+      path,
+      "advisorGitContext",
+      GIT_CONTEXT_LEVELS.join(", ")
+    );
+  }
   return true;
 };
 
@@ -411,6 +446,8 @@ const resetDefaults = () => {
   advisorToolResultMaxLinesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES;
   advisorToolResultMaxBytesRef = DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES;
   advisorRedactSecretsRef = false;
+  advisorGitContextRef = "summary";
+  advisorGitContextMaxCharsRef = DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS;
   advisorToolPoliciesRef = {};
 };
 
@@ -500,6 +537,12 @@ const applyConfig = (config: AdvisorConfig) => {
     config,
     "advisorRedactSecrets",
     setAdvisorRedactSecretsRef
+  );
+  applyOptionalConfig(config, "advisorGitContext", setAdvisorGitContextRef);
+  applyOptionalConfig(
+    config,
+    "advisorGitContextMaxChars",
+    setAdvisorGitContextMaxCharsRef
   );
   applyOptionalConfig(config, "advisorToolPolicies", setAdvisorToolPoliciesRef);
 };
@@ -600,6 +643,8 @@ export const saveConfig = (ctx: ExtensionContext) => {
     ...(advisorMaxCallsPerSessionRef === undefined
       ? {}
       : { advisorMaxCallsPerSession: advisorMaxCallsPerSessionRef }),
+    advisorGitContext: advisorGitContextRef,
+    advisorGitContextMaxChars: advisorGitContextMaxCharsRef,
     advisorHerdrIntegration: advisorHerdrIntegrationRef,
     advisorRedactSecrets: advisorRedactSecretsRef,
     advisorSessionSummary: advisorSessionSummaryRef,

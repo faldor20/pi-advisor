@@ -24,6 +24,8 @@ import {
   setAdvisorEffortRef,
   setAdvisorFailureGateRef,
   setAdvisorFailureModeRef,
+  setAdvisorGitContextMaxCharsRef,
+  setAdvisorGitContextRef,
   setAdvisorHerdrIntegrationRef,
   setAdvisorLoopThresholdRef,
   setAdvisorMaxCallsPerSessionRef,
@@ -505,6 +507,8 @@ export const registerCommands = (
       setAdvisorToolResultMaxLinesRef(settings.toolResultMaxLines ?? 2000);
       setAdvisorToolResultMaxBytesRef(settings.toolResultMaxBytes ?? 50 * 1024);
       setAdvisorRedactSecretsRef(settings.redactSecrets ?? false);
+      setAdvisorGitContextRef(settings.gitContext ?? "summary");
+      setAdvisorGitContextMaxCharsRef(settings.gitContextMaxChars ?? 20_000);
       setAdvisorToolPoliciesRef(settings.toolPolicies ?? {});
       const path = saveConfig(ctx);
       ctx.ui.notify(`Saved Advisor settings to ${path}`, "info");

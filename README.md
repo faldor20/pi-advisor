@@ -126,6 +126,8 @@ All fields are optional. This example shows the available settings and their nor
   "gateFailureMode": "block-session",
 
   "advisorSessionSummary": false,
+  "advisorGitContext": "summary",
+  "advisorGitContextMaxChars": 20000,
   "simpleMode": false,
   "alwaysOn": false,
   "advisorHerdrIntegration": true,
@@ -145,6 +147,20 @@ All fields are optional. This example shows the available settings and their nor
 - `simpleMode` defaults to `false`. When enabled, `ask_advisor` and `/advisor-manual` remain available for voluntary second opinions, while plan/failure/completion rules, loop gates, blocking, call budgets, and session summaries are disabled. Context limits, result caps, redaction, and tool disclosure policies still apply.
 - `alwaysOn` defaults to `false`. When enabled, Pi restores the configured Executor and activates `ask_advisor` for new, resumed, forked, and reloaded sessions. While the Advisor flow is active, an explicit `/model` selection becomes the persisted Executor for the next activation; a model restored with a session does not change the saved Executor. `/advisor-off` turns `alwaysOn` off so the flow stays disabled in later sessions.
 - In Simple mode, settings keeps the Context window/history slider alongside Simple mode and Always on; advanced values remain saved and take effect when Simple mode is disabled.
+
+### Repository context
+
+- `advisorGitContext` defaults to `summary`. It controls how much of the working tree reaches the Advisor:
+  - `off` sends no repository information.
+  - `summary` sends changed file names, change status, and line counts. It never sends file contents.
+  - `full` additionally sends the patch.
+- Changes are measured against the last commit and cover staged and unstaged work. Untracked files are always listed by name only; their contents are never sent.
+- `advisorGitContextMaxChars` defaults to `20000`. Repository context may claim its own cap or half of `contextMaxChars`, whichever is smaller, so it cannot crowd out the conversation.
+- The Executor may pass `gitContext` to `ask_advisor` as `none`, `summary`, or `full`. `advisorGitContext` is the ceiling: a larger request is narrowed to the configured level and the Advisor is told that a fuller view was withheld, so it does not claim verification it could not perform.
+- `summary` deliberately excludes diff hunk headers. Git derives those from surrounding file content, so a hunk header can reproduce a line the change never touched, including a credential.
+- Redaction runs before the region is capped, and repository content is labelled as untrusted data in the request. Paths and patch text are escaped so a crafted path cannot close the region early and have the remainder read as instructions.
+- File names themselves can be sensitive. `summary` withholds file contents, not file names; use `off` when names must not leave the machine.
+- Collection shares a single overall time budget across its git commands and degrades to a stated failure rather than implying a clean tree.
 
 ### Context and limits
 

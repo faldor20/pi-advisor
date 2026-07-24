@@ -195,6 +195,8 @@ export interface AdvisorSettings {
   effort?: string;
   failureGate: boolean;
   failureMode?: "block-session" | "block-tool" | "warn-and-continue";
+  gitContext?: "off" | "summary" | "full";
+  gitContextMaxChars?: number;
   herdrIntegration?: boolean;
   loopThreshold?: number;
   maxCallsPerSession?: number;
@@ -227,6 +229,8 @@ type AdvisorSettingsRow =
   | "toolResultMaxLines"
   | "toolResultMaxBytes"
   | "redactSecrets"
+  | "gitContext"
+  | "gitContextMaxChars"
   | "toolPolicies"
   | "save";
 
@@ -248,6 +252,8 @@ const ADVANCED_ROWS: AdvisorSettingsRow[] = [
   "toolResultMaxLines",
   "toolResultMaxBytes",
   "redactSecrets",
+  "gitContext",
+  "gitContextMaxChars",
   "toolPolicies",
 ];
 
@@ -465,6 +471,45 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     this.options.onCancel();
   }
 
+  /** Disclosure and output-limit rows, split out to keep each builder simple. */
+  private disclosureRows(): string[] {
+    const onOff = (value: boolean) => (value ? "On" : "Off");
+    return [
+      this.row(
+        "Tool result lines",
+        String(this.settings.toolResultMaxLines ?? 2000),
+        "toolResultMaxLines"
+      ),
+      this.row(
+        "Tool result bytes",
+        String(this.settings.toolResultMaxBytes ?? 50 * 1024),
+        "toolResultMaxBytes"
+      ),
+      this.row(
+        "Redact common secrets",
+        onOff(this.settings.redactSecrets ?? false),
+        "redactSecrets"
+      ),
+      this.row(
+        "Repository context",
+        this.settings.gitContext ?? "summary",
+        "gitContext"
+      ),
+      this.row(
+        "Repository context chars",
+        String(this.settings.gitContextMaxChars ?? 20_000),
+        "gitContextMaxChars"
+      ),
+      this.row(
+        "Tool disclosure policies",
+        Object.keys(this.settings.toolPolicies ?? {}).length
+          ? "Exact names configured"
+          : "All tools: full",
+        "toolPolicies"
+      ),
+    ];
+  }
+
   private advancedRows(width: number): string[] {
     const onOff = (value: boolean) => (value ? "On" : "Off");
     const rows = [
@@ -524,28 +569,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         onOff(this.settings.herdrIntegration ?? true),
         "herdrIntegration"
       ),
-      this.row(
-        "Tool result lines",
-        String(this.settings.toolResultMaxLines ?? 2000),
-        "toolResultMaxLines"
-      ),
-      this.row(
-        "Tool result bytes",
-        String(this.settings.toolResultMaxBytes ?? 50 * 1024),
-        "toolResultMaxBytes"
-      ),
-      this.row(
-        "Redact common secrets",
-        onOff(this.settings.redactSecrets ?? false),
-        "redactSecrets"
-      ),
-      this.row(
-        "Tool disclosure policies",
-        Object.keys(this.settings.toolPolicies ?? {}).length
-          ? "Exact names configured"
-          : "All tools: full",
-        "toolPolicies"
-      ),
+      ...this.disclosureRows(),
     ];
     if (this.editingCustom) {
       rows.push(
@@ -794,6 +818,30 @@ export class AdvisorSettingsSelector implements Component, Focusable {
       case "redactSecrets":
         this.settings.redactSecrets = !(this.settings.redactSecrets ?? false);
         break;
+      case "gitContext": {
+        const levels: AdvisorSettings["gitContext"][] = [
+          "off",
+          "summary",
+          "full",
+        ];
+        const index = Math.max(
+          0,
+          levels.indexOf(this.settings.gitContext ?? "summary")
+        );
+        this.settings.gitContext =
+          levels[Math.max(0, Math.min(levels.length - 1, index + direction))];
+        break;
+      }
+      case "gitContextMaxChars": {
+        const values = [0, 5000, 10_000, 20_000, 50_000, 100_000];
+        const index = Math.max(
+          0,
+          values.indexOf(this.settings.gitContextMaxChars ?? 20_000)
+        );
+        this.settings.gitContextMaxChars =
+          values[Math.max(0, Math.min(values.length - 1, index + direction))];
+        break;
+      }
       case "toolResultMaxLines": {
         const values = [0, 500, 1000, 2000, 5000, 10_000];
         const index = Math.max(

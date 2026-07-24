@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Persistent `alwaysOn` Advisor-flow activation, including Executor restoration and, while the flow is active, adoption of an explicit `/model` selection as the Executor. `/advisor-off` also turns persistent activation off.
 - Simple-mode settings for voluntary Advisor use and persistent activation.
 - Static `◆ ADVISOR · SOUND` rendering for ordinary Advisor replies beginning with `Verdict: sound`, for both `ask_advisor` results and `/advisor-manual` responses.
+- Repository change context for consultations, controlled by `advisorGitContext` (`off`, `summary`, `full`, default `summary`) and capped by `advisorGitContextMaxChars`. `summary` discloses changed file names, change status, and line counts; `full` adds the patch. Untracked files are always reported by name only.
+- An optional `gitContext` argument on `ask_advisor` so the Executor can request less, or request more up to the configured allowance. A request above the allowance is narrowed to it and the Advisor is told that a fuller view was withheld.
+- Repository context is escaped and capped as a single labelled untrusted region, so a crafted path cannot end the region early and have following text read as instructions.
 
 ### Changed
 
