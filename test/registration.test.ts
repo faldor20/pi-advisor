@@ -46,6 +46,9 @@ const MAX_CALLS_ROW_PATTERN = /Max Advisor calls\/session\s+10/;
 const SIMPLE_MODE_ON = /› Simple mode\s+On/;
 const SIMPLE_MODE_OFF = /› Simple mode\s+Off/;
 const CONTEXT_10K = /Context window\s+10k/;
+const SELECTED_CONTEXT_10K = /› Context window\s+10k/;
+const SELECTED_CONTEXT_15K = /› Context window\s+15k/;
+const CONTEXT_WINDOW = /Context window/g;
 const ALWAYS_ON_OFF = /Always on\s+Off/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal SGR codes
 const SGR_CODE = /\u001b\[[0-9;]*m/g;
@@ -644,13 +647,11 @@ describe("Extension Registration", () => {
         },
       },
     });
-    for (let index = 0; index < 2; index += 1) {
-      selector.handleInput("\u001b[B");
-    }
+    // Context is the first advanced row because the slider appears above it.
     selector.handleInput("\u001b[C");
     const downsToSave = saveViaKeyboard(selector);
-    // Two downs plus one right plus the downs to Save; Enter saves without a render.
-    expect(renderRequests).toBe(3 + downsToSave);
+    // One right plus the downs to Save; Enter saves without a render.
+    expect(renderRequests).toBe(1 + downsToSave);
     expect(saved.contextMaxChars).toBe(10_000);
     const screen = selector.render(80).join("\n");
     expect(screen).toContain("Advisor reasoning");
@@ -1136,12 +1137,29 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     return { saved, selector };
   };
 
+  test("focuses the advanced Context slider and changes its value", () => {
+    const { selector } = openSelector({
+      contextMaxChars: 10_000,
+      simpleMode: false,
+    });
+    // The top slider is the first keyboard-selectable advanced row, with no
+    // duplicate Context row after the mode controls.
+    const before = plain(selector);
+    expect(before).toMatch(SELECTED_CONTEXT_10K);
+    expect(before.indexOf("Context window")).toBeLessThan(
+      before.indexOf("Simple mode")
+    );
+    expect(before.match(CONTEXT_WINDOW)).toHaveLength(1);
+    selector.handleInput("\u001b[C");
+    expect(plain(selector)).toMatch(SELECTED_CONTEXT_15K);
+  });
+
   test("keeps the cursor on Simple mode across a mode toggle", () => {
     const { selector } = openSelector({
       contextMaxChars: 10_000,
       simpleMode: false,
     });
-    // Simple mode is the first row of the advanced list.
+    selector.handleInput("\u001b[B");
     selector.handleInput("\u001b[C");
     expect(plain(selector)).toMatch(SIMPLE_MODE_ON);
     // The second toggle must return to advanced rather than move the slider.

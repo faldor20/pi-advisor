@@ -367,7 +367,13 @@ export class AdvisorSettingsSelector implements Component, Focusable {
   private visibleRows(): AdvisorSettingsRow[] {
     return this.settings.simpleMode
       ? ["context", "simpleMode", "alwaysOn", "save"]
-      : ["simpleMode", "alwaysOn", ...ADVANCED_ROWS, "save"];
+      : [
+          "context",
+          "simpleMode",
+          "alwaysOn",
+          ...ADVANCED_ROWS.slice(1),
+          "save",
+        ];
   }
 
   private selectedRowId(): AdvisorSettingsRow {
@@ -513,7 +519,6 @@ export class AdvisorSettingsSelector implements Component, Focusable {
   private advancedRows(width: number): string[] {
     const onOff = (value: boolean) => (value ? "On" : "Off");
     const rows = [
-      this.row("Context window", this.currentContext().label, "context"),
       this.row("Advisor reasoning", this.currentEffort(), "effort"),
       this.row("Plan gate", onOff(this.settings.planGate), "planGate"),
       this.row("Failure gate", onOff(this.settings.failureGate), "failureGate"),
@@ -654,6 +659,9 @@ export class AdvisorSettingsSelector implements Component, Focusable {
       }
     }
     const heading = `Recent history${" ".repeat(Math.max(1, trackWidth - "Recent history".length - "Full branch".length))}Full branch`;
+    lines.push(
+      `  ${this.row("Context window", this.currentContext().label, "context")}`
+    );
     lines.push(`  ${theme.fg("muted", heading)}`);
     lines.push(`  ${theme.fg("muted", track.join(""))}`);
     lines.push(`  ${theme.fg("text", labels.join(""))}`);
