@@ -26,6 +26,7 @@ import {
   advisorGitContextMaxCharsRef,
   advisorGitContextRef,
   advisorHerdrIntegrationRef,
+  advisorOutcomeLoggingRef,
   advisorRedactSecretsRef,
   advisorRef,
   advisorSessionSummaryRef,
@@ -320,6 +321,43 @@ describe("Config Module", () => {
       } else {
         process.env[AGENT_DIR_ENV] = previousAgentDir;
       }
+      rmSync(cwd, { force: true, recursive: true });
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
+  test("project configuration cannot enable global-only outcome logging", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    mkdirSync(join(cwd, CONFIG_DIR_NAME));
+    writeFileSync(
+      join(cwd, CONFIG_DIR_NAME, "advisor.json"),
+      JSON.stringify({ advisorOutcomeLogging: true })
+    );
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({ advisorOutcomeLogging: false })
+    );
+    resetConfigCache();
+    try {
+      loadConfig({ cwd, isProjectTrusted: () => true } as any);
+      expect(advisorOutcomeLoggingRef).toBe(false);
+      writeFileSync(
+        join(agentDir, "advisor.json"),
+        JSON.stringify({ advisorOutcomeLogging: true })
+      );
+      resetConfigCache();
+      loadConfig({ cwd, isProjectTrusted: () => true } as any);
+      expect(advisorOutcomeLoggingRef).toBe(true);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
       rmSync(cwd, { force: true, recursive: true });
       rmSync(agentDir, { force: true, recursive: true });
     }

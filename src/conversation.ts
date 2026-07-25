@@ -59,6 +59,23 @@ export const redactSecrets = (value: string): string => {
   return redacted;
 };
 
+/** Redacts before a byte-safe cap so no secret fragment survives truncation. */
+export const redactAndCapText = (
+  value: string,
+  maxBytes: number,
+  redact = true
+): string => {
+  const source = redact ? redactSecrets(value) : value;
+  let result = "";
+  for (const character of source) {
+    if (byteLength(result + character) > maxBytes) {
+      break;
+    }
+    result += character;
+  }
+  return result;
+};
+
 export interface ToolResultTruncation {
   content: string;
   omittedLines: number;

@@ -112,6 +112,13 @@ export class AdvisorSessionState {
   #invocations: AdvisorInvocationRecord[] = [];
   #loopInterventions = 0;
   #consumedCalls = 0;
+  readonly #issuedAdvice = new Map<
+    string,
+    { advice: string; trigger: ConsultationTrigger }
+  >();
+  readonly #reportedAdvice = new Set<string>();
+  #draftConsultations = 0;
+  #outcomes = 0;
 
   resetTask() {
     this.#previousSignature = undefined;
@@ -120,6 +127,10 @@ export class AdvisorSessionState {
     this.#invocations = [];
     this.#loopInterventions = 0;
     this.#consumedCalls = 0;
+    this.#issuedAdvice.clear();
+    this.#reportedAdvice.clear();
+    this.#draftConsultations = 0;
+    this.#outcomes = 0;
   }
 
   clearBlocked() {
@@ -172,6 +183,29 @@ export class AdvisorSessionState {
   recordInvocation(record: AdvisorInvocationRecord) {
     this.#invocations.push(record);
   }
+  issueAdvice(
+    id: string,
+    advice: string,
+    trigger: ConsultationTrigger,
+    draft = false
+  ) {
+    this.#issuedAdvice.set(id, { advice, trigger });
+    if (draft) {
+      this.#draftConsultations += 1;
+    }
+  }
+  claimAdvice(id: string) {
+    if (this.#reportedAdvice.has(id)) {
+      return;
+    }
+    const advice = this.#issuedAdvice.get(id);
+    if (!advice) {
+      return;
+    }
+    this.#reportedAdvice.add(id);
+    this.#outcomes += 1;
+    return advice;
+  }
 
   summary(limit: number | undefined) {
     if (this.#invocations.length === 0 && this.#loopInterventions === 0) {
@@ -215,7 +249,8 @@ export class AdvisorSessionState {
       `Triggers: ${["manual", "executor-requested", "repeated-tool-call", "completion-review", "custom-rule"].filter((trigger) => countTrigger(trigger as AdvisorTrigger) > 0).join(", ") || "none"}`,
       `Models: ${models}`,
       `Budget: ${budget}`,
-      `Markdown advice: ${markdown.length} responses`,
+      `Markdown advice: ${markdown.length} responses (${this.#draftConsultations} with drafts)`,
+      `Outcome reports: ${this.#outcomes}`,
       `Gate decisions: ${decisions}`,
       `Loop matching: normalized tool signatures; ${this.#loopInterventions} gate intervention${this.#loopInterventions === 1 ? "" : "s"}`,
       `Execution effects: ${effects("tool-blocked")} tool blocked, ${effects("session-blocked")} sessions blocked, ${effects("continued")} continued`,

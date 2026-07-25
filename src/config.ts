@@ -62,6 +62,8 @@ export let advisorRedactSecretsRef = false;
 export let advisorGitContextRef: GitContextLevel = "summary";
 export let advisorGitContextMaxCharsRef = DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS;
 export let advisorToolPoliciesRef: AdvisorToolPolicies = {};
+export let advisorOutcomeLoggingRef = false;
+export let advisorUntrackedContentRef = false;
 
 export const setExecutorRef = (ref: string) => {
   executorRef = ref;
@@ -158,6 +160,12 @@ export const setAdvisorGitContextMaxCharsRef = (value: number) => {
 export const setAdvisorToolPoliciesRef = (policies: AdvisorToolPolicies) => {
   advisorToolPoliciesRef = { ...policies };
 };
+export const setAdvisorOutcomeLoggingRef = (enabled: boolean) => {
+  advisorOutcomeLoggingRef = enabled;
+};
+export const setAdvisorUntrackedContentRef = (enabled: boolean) => {
+  advisorUntrackedContentRef = enabled;
+};
 
 /**
  * Returns the current live settings state. Use this at UI boundaries instead of
@@ -179,6 +187,7 @@ export const getAdvisorSettings = () => ({
   herdrIntegration: advisorHerdrIntegrationRef,
   loopThreshold: advisorLoopThresholdRef,
   maxCallsPerSession: advisorMaxCallsPerSessionRef,
+  outcomeLogging: advisorOutcomeLoggingRef,
   planGate: advisorPlanGateRef,
   redactSecrets: advisorRedactSecretsRef,
   sessionSummary: advisorSessionSummaryRef,
@@ -186,6 +195,7 @@ export const getAdvisorSettings = () => ({
   toolPolicies: { ...advisorToolPoliciesRef },
   toolResultMaxBytes: advisorToolResultMaxBytesRef,
   toolResultMaxLines: advisorToolResultMaxLinesRef,
+  untrackedContent: advisorUntrackedContentRef,
 });
 
 export const splitRef = (ref: string): [string, string] => {
@@ -214,12 +224,14 @@ export interface AdvisorConfig {
   advisorHerdrIntegration?: boolean;
   advisorLoopThreshold?: number;
   advisorMaxCallsPerSession?: number;
+  advisorOutcomeLogging?: boolean;
   advisorPlanGate?: boolean;
   advisorRedactSecrets?: boolean;
   advisorSessionSummary?: boolean;
   advisorToolPolicies?: AdvisorToolPolicies;
   advisorToolResultMaxBytes?: number;
   advisorToolResultMaxLines?: number;
+  advisorUntrackedContent?: boolean;
   alwaysOn?: boolean;
   contextMaxChars?: number;
   executor?: string;
@@ -249,6 +261,8 @@ const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
   "advisorToolResultMaxBytes",
   "advisorToolResultMaxLines",
   "advisorRedactSecrets",
+  "advisorUntrackedContent",
+  "advisorOutcomeLogging",
   "advisorToolPolicies",
   "contextMaxChars",
   "executor",
@@ -267,6 +281,8 @@ const BOOLEAN_CONFIG_KEYS = [
   "alwaysOn",
   "advisorHerdrIntegration",
   "advisorRedactSecrets",
+  "advisorUntrackedContent",
+  "advisorOutcomeLogging",
 ] as const;
 const STRING_CONFIG_KEYS = [
   "executor",
@@ -449,6 +465,8 @@ const resetDefaults = () => {
   advisorGitContextRef = "summary";
   advisorGitContextMaxCharsRef = DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS;
   advisorToolPoliciesRef = {};
+  advisorOutcomeLoggingRef = false;
+  advisorUntrackedContentRef = false;
 };
 
 const applyOptionalConfig = <Key extends keyof AdvisorConfig>(
@@ -545,6 +563,11 @@ const applyConfig = (config: AdvisorConfig) => {
     setAdvisorGitContextMaxCharsRef
   );
   applyOptionalConfig(config, "advisorToolPolicies", setAdvisorToolPoliciesRef);
+  applyOptionalConfig(
+    config,
+    "advisorUntrackedContent",
+    setAdvisorUntrackedContentRef
+  );
 };
 
 const readConfig = (path: string): AdvisorConfig => {
@@ -596,17 +619,25 @@ const readConfigCached = (path: string): AdvisorConfig => {
 
 export const loadConfig = (ctx: ExtensionContext) => {
   resetDefaults();
-  const path = configPaths(ctx).find(
+  const paths = configPaths(ctx);
+  const path = paths.find(
     (candidate): candidate is string =>
       candidate !== null && existsSync(candidate)
   );
-  if (!path) {
-    return null;
+  if (path) {
+    applyConfig(readConfigCached(path));
   }
-  applyConfig(readConfigCached(path));
-  return path;
+  // Persistent outcome consent is global-only: project configuration cannot enable it.
+  const global = join(getAgentDir(), "advisor.json");
+  const globalConfig = existsSync(global)
+    ? readConfigCached(global)
+    : undefined;
+  // Never apply this field through project-first configuration selection.
+  advisorOutcomeLoggingRef = globalConfig?.advisorOutcomeLogging === true;
+  return path ?? null;
 };
 
+/** Saves the ordinary project-preferred configuration without outcome consent. */
 export const saveConfig = (ctx: ExtensionContext) => {
   const project = join(ctx.cwd, CONFIG_DIR_NAME, "advisor.json");
   const path =
@@ -651,11 +682,32 @@ export const saveConfig = (ctx: ExtensionContext) => {
     advisorToolPolicies: advisorToolPoliciesRef,
     advisorToolResultMaxBytes: advisorToolResultMaxBytesRef,
     advisorToolResultMaxLines: advisorToolResultMaxLinesRef,
+    advisorUntrackedContent: advisorUntrackedContentRef,
     alwaysOn: alwaysOnRef,
     gateFailureMode: advisorFailureModeRef,
     simpleMode: simpleModeRef,
   };
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+  resetConfigCache();
+  return path;
+};
+
+/** Outcome logging is deliberately written only to the global Pi configuration. */
+export const saveGlobalOutcomeLogging = (enabled: boolean) => {
+  const path = join(getAgentDir(), "advisor.json");
+  let existing: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* create it */
+  }
+  writeFileSync(
+    path,
+    `${JSON.stringify({ ...existing, advisorOutcomeLogging: enabled }, null, 2)}\n`
+  );
   resetConfigCache();
   return path;
 };

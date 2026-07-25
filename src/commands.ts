@@ -16,6 +16,7 @@ import {
   loadConfig,
   parseArgs,
   saveConfig,
+  saveGlobalOutcomeLogging,
   setAdvisorAutoLoopGateRef,
   setAdvisorBlockOnBlockedRef,
   setAdvisorCollapseResponsesRef,
@@ -29,6 +30,7 @@ import {
   setAdvisorHerdrIntegrationRef,
   setAdvisorLoopThresholdRef,
   setAdvisorMaxCallsPerSessionRef,
+  setAdvisorOutcomeLoggingRef,
   setAdvisorPlanGateRef,
   setAdvisorRedactSecretsRef,
   setAdvisorRef,
@@ -36,6 +38,7 @@ import {
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
   setAdvisorToolResultMaxLinesRef,
+  setAdvisorUntrackedContentRef,
   setAlwaysOnRef,
   setContextMaxCharsRef,
   setExecutorEffortRef,
@@ -110,7 +113,12 @@ type ManualConsult = (
   ctx: ExtensionContext,
   question?: string,
   signal?: AbortSignal
-) => Promise<{ markdown: string; thinkingText: string }>;
+) => Promise<{
+  markdown: string;
+  thinkingText: string;
+  draftBytes?: number;
+  preferenceBytes?: number;
+}>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
 
 const notify = (
@@ -250,7 +258,11 @@ export const registerCommands = (
       pi.setThinkingLevel(executorEffortRef as ThinkingLevel);
     }
     if (!flowEnabled()) {
-      pi.setActiveTools([...pi.getActiveTools(), "ask_advisor"]);
+      pi.setActiveTools([
+        ...pi.getActiveTools(),
+        "ask_advisor",
+        "record_advisor_outcome",
+      ]);
     }
     if (announce) {
       notify(
@@ -461,6 +473,7 @@ export const registerCommands = (
 
   pi.registerCommand("advisor-settings", {
     description: "Configure Advisor context and reasoning effort",
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one settings form maps every persisted control.
     handler: async (_args, ctx) => {
       loadConfig(ctx);
       if (!ctx.hasUI) {
@@ -510,8 +523,16 @@ export const registerCommands = (
       setAdvisorGitContextRef(settings.gitContext ?? "summary");
       setAdvisorGitContextMaxCharsRef(settings.gitContextMaxChars ?? 20_000);
       setAdvisorToolPoliciesRef(settings.toolPolicies ?? {});
+      setAdvisorUntrackedContentRef(settings.untrackedContent ?? false);
+      setAdvisorOutcomeLoggingRef(settings.outcomeLogging ?? false);
       const path = saveConfig(ctx);
-      ctx.ui.notify(`Saved Advisor settings to ${path}`, "info");
+      const globalPath = saveGlobalOutcomeLogging(
+        settings.outcomeLogging ?? false
+      );
+      ctx.ui.notify(
+        `Saved Advisor settings to ${path}; outcome logging globally to ${globalPath}`,
+        "info"
+      );
     },
   });
 
@@ -519,7 +540,12 @@ export const registerCommands = (
     description: "Disable on-demand Advisor calls; keep the current model",
     handler: (_args, ctx) => {
       pi.setActiveTools(
-        pi.getActiveTools().filter((name) => name !== "ask_advisor")
+        pi
+          .getActiveTools()
+          .filter(
+            (name) =>
+              name !== "ask_advisor" && name !== "record_advisor_outcome"
+          )
       );
       // Leaving alwaysOn set would silently reactivate the flow next session.
       const wasAlwaysOn = alwaysOnRef;

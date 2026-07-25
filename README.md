@@ -1,19 +1,18 @@
 # pi-advisor
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/screenshot.png" alt="Pi Advisor consultation in the terminal" width="760">
 
-A configurable second-opinion workflow for <a href="https://github.com/earendil-works/pi">Pi</a> coding agents.
+![Pi Advisor consultation in the terminal](https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/screenshot.png)
+
+A configurable second-opinion workflow for <a href="https://github.com/earendil-works/pi">Pi</a> coding agents, inspired by the ["Steering Black-Box LLMs with Advisor Models" paper](https://arxiv.org/abs/2510.02453) and Claude's [Advisor](https://code.claude.com/docs/en/advisor) feature.
 
 </div>
 
-Keep the work to the executor model, while the advisor steers it.
-
-This extension introduces a strategic "Executor/Advisor" workflow, inspired by Claudes [Advisor](https://code.claude.com/docs/en/advisor).
+This extension introduces a strategic "Executor/Advisor" workflow.
 
 `pi-advisor-flow` keeps one model focused on execution and makes a second, smarter model available for consequential decisions, stalled work, and final reviews. The Executor still owns the work. The Advisor provides a concise review, answers questions and can provide help; it does not take over planning or run tools.
 
-[Read more about Advisors here](https://philipbrembeck.com/writings/2026/07/only-as-much-intelligence-as-you-need).
+The concept is simple, keep implementation on a fast model, borrow frontier reasoning only when decisions actually matter. [Read more about Advisors here](https://philipbrembeck.com/writings/2026/07/only-as-much-intelligence-as-you-need).
 
 ## Install
 
@@ -58,7 +57,9 @@ Enable with models in one command when preferred:
 
 ### `ask_advisor`
 
-The Executor calls `ask_advisor({})` for a general review of the current task and reconstructed conversation. It can pass a `question` for a targeted review.
+The Executor calls `ask_advisor({})` for a general review of the current task and reconstructed conversation. It can pass a `question` for a targeted review, or a concise `draft` for plan and completion reviews. A draft should name proposed work, validation, and remaining risks; it is an unverified claim, not evidence.
+
+Successful calls return an opaque `adviceId`. When global outcome logging is enabled, the Executor may voluntarily call `record_advisor_outcome` once with that ID, an adoption value, and a final validation status.
 
 Use the Advisor after the Executor has investigated and formed a candidate direction. It is intended to challenge assumptions, expose risks, and confirm the next verification step—not to replace the Executor's work.
 
@@ -135,6 +136,8 @@ All fields are optional. This example shows the available settings and their nor
   "advisorToolResultMaxBytes": 51200,
 
   "advisorRedactSecrets": false,
+  "advisorUntrackedContent": false,
+  "advisorOutcomeLogging": false,
   "advisorToolPolicies": {
     "bash": "summary",
     "deploy": "exclude"
@@ -154,13 +157,20 @@ All fields are optional. This example shows the available settings and their nor
   - `off` sends no repository information.
   - `summary` sends changed file names, change status, and line counts. It never sends file contents.
   - `full` additionally sends the patch.
-- Changes are measured against the last commit and cover staged and unstaged work. Untracked files are always listed by name only; their contents are never sent.
+- Changes are measured against the last commit and cover staged and unstaged work. Untracked files are always listed by name only; their contents are never sent by `gitContext: full`.
+- `advisorUntrackedContent` defaults to false. When enabled, `includeUntracked` can attach only exact named, repository-relative, untracked regular files. Files are redacted and capped before egress; sibling files remain withheld.
 - `advisorGitContextMaxChars` defaults to `20000`. Repository context may claim its own cap or half of `contextMaxChars`, whichever is smaller, so it cannot crowd out the conversation.
 - The Executor may pass `gitContext` to `ask_advisor` as `none`, `summary`, or `full`. `advisorGitContext` is the ceiling: a larger request is narrowed to the configured level and the Advisor is told that a fuller view was withheld, so it does not claim verification it could not perform.
 - `summary` deliberately excludes diff hunk headers. Git derives those from surrounding file content, so a hunk header can reproduce a line the change never touched, including a credential.
 - Redaction runs before the region is capped, and repository content is labelled as untrusted data in the request. Paths and patch text are escaped so a crafted path cannot close the region early and have the remainder read as instructions.
 - File names themselves can be sensitive. `summary` withholds file contents, not file names; use `off` when names must not leave the machine.
 - Collection shares a single overall time budget across its git commands and degrades to a stated failure rather than implying a clean tree.
+
+### Project preferences and outcomes
+
+In a trusted project only, `.pi/advisor-preferences.md` may provide a short local brief. It is never written by pi-advisor, is treated as lower-priority untrusted text, and is redacted/capped before egress. Symlinks, unreadable files, and paths outside the project are ignored.
+
+`advisorOutcomeLogging` defaults to false and is global-only: a project config cannot enable it. When enabled, `~/.pi/agent/advisor-outcomes.jsonl` stores bounded rotating JSONL records with only a version, timestamp, salted truncated advice digest, trigger, adoption, and validation status. It stores no prompt, advice, paths, tool output, repository data, session ID, or advice ID.
 
 ### Context and limits
 

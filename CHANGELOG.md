@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.6
+
+### Added
+
+- Draft-aware `ask_advisor` reviews with opaque advice IDs, explicit outcome reporting, trusted-project preferences, and opt-in explicit untracked-file context.
+- Global-only, privacy-minimal outcome JSONL logging with salted advice digests and no raw advice, prompts, paths, repository data, or session identifiers.
+- `.pi/advisor-preferences.md` support for trusted projects; preferences remain untrusted, redacted, capped, and never auto-written.
+
 ## 0.2.5
 
 ### Added

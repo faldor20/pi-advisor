@@ -200,6 +200,7 @@ export interface AdvisorSettings {
   herdrIntegration?: boolean;
   loopThreshold?: number;
   maxCallsPerSession?: number;
+  outcomeLogging?: boolean;
   planGate: boolean;
   redactSecrets?: boolean;
   sessionSummary?: boolean;
@@ -207,6 +208,7 @@ export interface AdvisorSettings {
   toolPolicies?: Record<string, "full" | "summary" | "exclude">;
   toolResultMaxBytes?: number;
   toolResultMaxLines?: number;
+  untrackedContent?: boolean;
 }
 
 type AdvisorSettingsRow =
@@ -232,6 +234,8 @@ type AdvisorSettingsRow =
   | "gitContext"
   | "gitContextMaxChars"
   | "toolPolicies"
+  | "outcomeLogging"
+  | "untrackedContent"
   | "save";
 
 const ADVANCED_ROWS: AdvisorSettingsRow[] = [
@@ -255,6 +259,8 @@ const ADVANCED_ROWS: AdvisorSettingsRow[] = [
   "gitContext",
   "gitContextMaxChars",
   "toolPolicies",
+  "untrackedContent",
+  "outcomeLogging",
 ];
 
 const SIMPLE_MODE_GRADIENT_INTERVAL_MS = 100;
@@ -512,6 +518,16 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           ? "Exact names configured"
           : "All tools: full",
         "toolPolicies"
+      ),
+      this.row(
+        "Untracked file content",
+        onOff(this.settings.untrackedContent ?? false),
+        "untrackedContent"
+      ),
+      this.row(
+        "Outcome logging (global)",
+        onOff(this.settings.outcomeLogging ?? false),
+        "outcomeLogging"
       ),
     ];
   }
@@ -825,6 +841,14 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         break;
       case "redactSecrets":
         this.settings.redactSecrets = !(this.settings.redactSecrets ?? false);
+        break;
+      case "untrackedContent":
+        this.settings.untrackedContent = !(
+          this.settings.untrackedContent ?? false
+        );
+        break;
+      case "outcomeLogging":
+        this.settings.outcomeLogging = !(this.settings.outcomeLogging ?? false);
         break;
       case "gitContext": {
         const levels: AdvisorSettings["gitContext"][] = [
