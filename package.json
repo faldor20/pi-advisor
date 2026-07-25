@@ -1,4 +1,12 @@
 {
+  "name": "pi-advisor-flow",
+  "version": "0.2.6",
+  "author": "Philip Brembeck",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/philipbrembeck/pi-advisor.git"
+  },
+  "main": "extensions/index.ts",
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
     "@earendil-works/pi-ai": "^0.80.7",
@@ -12,12 +20,39 @@
     "typescript": "^5.3.3",
     "ultracite": "7.9.4"
   },
-  "name": "pi-advisor-flow",
   "peerDependencies": {
     "@earendil-works/pi-ai": "^0.80.7",
     "@earendil-works/pi-coding-agent": "^0.80.7",
     "@earendil-works/pi-tui": "^0.80.7",
     "typebox": "^1.1.38"
+  },
+  "description": "Advanced Executor/Advisor flow for Pi, fully configurable and extendable.",
+  "files": [
+    "extensions",
+    "src",
+    "README.md"
+  ],
+  "homepage": "https://github.com/philipbrembeck/pi-advisor",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "advisor",
+    "pi-advisor",
+    "herdr"
+  ],
+  "license": "MIT",
+  "lint-staged": {
+    "*.{json,jsonc,ts}": "bun run lint:fix --"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/hero.png"
   },
   "scripts": {
     "test": "bun test",
@@ -28,38 +63,6 @@
     "package:check": "npm pack --dry-run --json >/dev/null",
     "prepare": "husky"
   },
-  "lint-staged": {
-    "*.{json,jsonc,ts}": "bun run lint:fix --"
-  },
   "type": "module",
-  "version": "0.2.6",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/philipbrembeck/pi-advisor.git"
-  },
-  "homepage": "https://github.com/philipbrembeck/pi-advisor",
-  "author": "Philip Brembeck",
-  "description": "Advanced Executor/Advisor flow for Pi, fully configurable and extendable.",
-  "main": "extensions/index.ts",
-  "types": "extensions/index.ts",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi-coding-agent",
-    "advisor",
-    "pi-advisor",
-    "herdr"
-  ],
-  "files": [
-    "extensions",
-    "src",
-    "README.md"
-  ],
-  "pi": {
-    "extensions": [
-      "./extensions/index.ts"
-    ],
-    "image": "https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/hero.png"
-  }
+  "types": "extensions/index.ts"
 }
