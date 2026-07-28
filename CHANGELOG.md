@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.7
+
+### Security
+
+- Escaped every untrusted Advisor prompt region and hardened automatic decision parsing against malformed fenced blocks ([#2](https://github.com/philipbrembeck/pi-advisor/issues/2)).
+- Kept Advisor prompts, models, gates, budgets, disclosure, redaction, integrations, and consent global by no longer applying repository-controlled project `advisor.json` files ([#3](https://github.com/philipbrembeck/pi-advisor/issues/3)).
+- Redacted unterminated oversized PEM blocks before bounded preference or untracked-file content can leave the process ([#4](https://github.com/philipbrembeck/pi-advisor/issues/4)).
+- Bounded and redacted Herdr blocked-state metadata while reliably clearing previously reported labels ([#5](https://github.com/philipbrembeck/pi-advisor/issues/5)).
+- Bounded untracked-file Git probes and switched to NUL-delimited path handling for non-ASCII filenames ([#6](https://github.com/philipbrembeck/pi-advisor/issues/6)).
+
+### Changed
+
+- Advisor settings now load and save globally. Move any intended values from project `.pi/advisor.json` files into the Pi agent directory's global `advisor.json`.
+- Pi's bundled modules (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox`) are declared as optional peer dependencies. Installing the extension no longer installs a copy of them; Pi supplies them at runtime. Version ranges continue to document the supported Pi API.
+- Published packages now include `CHANGELOG.md`.
+- Release workflows pin GitHub Actions to commit SHAs, kept current by Dependabot.
+
 ## 0.2.6
 
 ### Added
@@ -13,6 +30,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `.pi/advisor-preferences.md` support for trusted projects; preferences remain untrusted, redacted, capped, and never auto-written.
 
 ## 0.2.5
+
+This version was never published to npm; its changes shipped in 0.2.6.
 
 ### Added
 

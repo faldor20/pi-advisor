@@ -7,6 +7,7 @@ export const UNTRACKED_FILE_MAX_BYTES = 8 * 1024;
 export const UNTRACKED_TOTAL_MAX_BYTES = 24 * 1024;
 export interface UntrackedAttachment {
   bytes: number;
+  path: string;
   text: string;
 }
 
@@ -16,13 +17,40 @@ const within = (root: string, candidate: string) => {
   const path = relative(root, candidate);
   return path !== "" && !path.startsWith("..") && !path.includes("../");
 };
+const normalizeRelativePath = (root: string, path: string) =>
+  relative(root, resolve(root, path));
+
+const normalizeRequestedPath = (root: string, value: unknown) => {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    isAbsolute(value) ||
+    value.split(PATH_SEGMENTS).includes("..")
+  ) {
+    return;
+  }
+  return normalizeRelativePath(root, value);
+};
+
 const untracked = (cwd: string, path: string) => {
   const output = execFileSync(
     "git",
-    ["ls-files", "--others", "--exclude-standard", "--", path],
-    { cwd, encoding: "utf8", shell: false }
+    ["ls-files", "--others", "--exclude-standard", "-z", "--", path],
+    {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5000,
+      windowsHide: true,
+    }
   );
-  return output.split("\n").includes(path);
+  const expected = normalizeRelativePath(cwd, path);
+  return output
+    .split("\0")
+    .filter(Boolean)
+    .some((entry) => normalizeRelativePath(cwd, entry) === expected);
 };
 
 /** Returns only exact, permitted untracked regular-file bodies. Refusals are silent. */
@@ -43,19 +71,14 @@ export const readUntrackedFiles = async (
   const attachments: UntrackedAttachment[] = [];
   let total = 0;
   for (const name of requested) {
-    if (
-      typeof name !== "string" ||
-      !name ||
-      isAbsolute(name) ||
-      name.split(PATH_SEGMENTS).includes("..") ||
-      unique.has(name)
-    ) {
+    const normalizedName = normalizeRequestedPath(root, name);
+    if (!normalizedName || unique.has(normalizedName)) {
       continue;
     }
-    unique.add(name);
+    unique.add(normalizedName);
     try {
-      const absolute = resolve(root, name);
-      if (!(within(root, absolute) && untracked(root, name))) {
+      const absolute = resolve(root, normalizedName);
+      if (!(within(root, absolute) && untracked(root, normalizedName))) {
         continue;
       }
       // Sequentially enforce the aggregate disclosure budget.
@@ -85,7 +108,7 @@ export const readUntrackedFiles = async (
           redact
         );
         const bytes = Buffer.byteLength(text, "utf8");
-        attachments.push({ bytes, text });
+        attachments.push({ bytes, path: normalizedName, text });
         total += bytes;
       } finally {
         await file.close();

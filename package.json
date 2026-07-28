@@ -1,6 +1,6 @@
 {
   "name": "pi-advisor-flow",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "author": "Philip Brembeck",
   "repository": {
     "type": "git",
@@ -26,10 +26,26 @@
     "@earendil-works/pi-tui": "^0.80.7",
     "typebox": "^1.1.38"
   },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
   "description": "Advanced Executor/Advisor flow for Pi, fully configurable and extendable.",
   "files": [
     "extensions",
     "src",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md"
   ],
   "homepage": "https://github.com/philipbrembeck/pi-advisor",

@@ -49,6 +49,28 @@ describe("project preferences", () => {
     }
   });
 
+  test("redacts a PEM block whose closing delimiter is beyond the read cap", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-preferences-"));
+    mkdirSync(join(cwd, ".pi"));
+    const keyBody = "A".repeat(9000);
+    writeFileSync(
+      join(cwd, ".pi", "advisor-preferences.md"),
+      `-----BEGIN PRIVATE KEY-----\n${keyBody}\n-----END PRIVATE KEY-----`
+    );
+    try {
+      const attachment = await readProjectPreferences(
+        context(cwd, true),
+        8 * 1024,
+        true
+      );
+      expect(attachment?.text).toContain("[REDACTED SECRET]");
+      expect(attachment?.text).not.toContain("AAAA");
+      expect(attachment?.bytes).toBeLessThanOrEqual(8 * 1024);
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
   test("refuses symlink preferences without reading their target", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-preferences-"));
     const outside = join(tmpdir(), `pi-advisor-secret-${Date.now()}`);

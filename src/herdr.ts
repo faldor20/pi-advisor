@@ -1,5 +1,6 @@
 import net from "node:net";
-import { advisorHerdrIntegrationRef } from "./config.js";
+import { getAdvisorSettings } from "./config.js";
+import { redactSecrets } from "./conversation.js";
 
 const SOURCE = "pi-advisor:advisor-activity";
 const BLOCK_SOURCE = "pi-advisor:advisor-block";
@@ -41,7 +42,7 @@ const isControlCharacter = (character: string) =>
   character <= "\u001f" || character === "\u007f";
 
 const cleanNotification = (value: string, max: number) =>
-  [...value]
+  [...redactSecrets(value)]
     .map((character) => (isControlCharacter(character) ? " " : character))
     .join("")
     .replace(/\s+/g, " ")
@@ -167,7 +168,7 @@ export class HerdrAdvisorBlock {
       return;
     }
     this.#blocked = true;
-    this.safeReport({ blocked: reason });
+    this.safeReport({ blocked: cleanNotification(reason, 200) });
   }
 
   clear() {
@@ -176,9 +177,8 @@ export class HerdrAdvisorBlock {
     if (!wasBlocked) {
       return;
     }
-    if (!this.enabled()) {
-      return;
-    }
+    // Clearing previously reported state is a de-escalation and must still be
+    // delivered if integration was disabled after the block was reported.
     try {
       this.report({
         id: `${BLOCK_SOURCE}:${nextSequence()}`,
@@ -218,7 +218,7 @@ export class HerdrAdvisorBlock {
 }
 
 export const notifyHerdrAdvisorFailure = (title: string, body: string) => {
-  if (!advisorHerdrIntegrationRef) {
+  if (!getAdvisorSettings().herdrIntegration) {
     return;
   }
   try {
@@ -230,9 +230,9 @@ export const notifyHerdrAdvisorFailure = (title: string, body: string) => {
 
 export const herdrAdvisorActivity = new HerdrAdvisorActivity(
   sendToHerdr,
-  () => advisorHerdrIntegrationRef
+  () => getAdvisorSettings().herdrIntegration
 );
 export const herdrAdvisorBlock = new HerdrAdvisorBlock(
   sendToHerdr,
-  () => advisorHerdrIntegrationRef
+  () => getAdvisorSettings().herdrIntegration
 );

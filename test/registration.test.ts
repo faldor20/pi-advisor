@@ -25,6 +25,7 @@ import {
 import {
   createHerdrNotificationRequest,
   HerdrAdvisorActivity,
+  HerdrAdvisorBlock,
 } from "../src/herdr.js";
 import {
   ADVISOR_DECISION_SYSTEM,
@@ -142,6 +143,31 @@ describe("Herdr Advisor activity", () => {
     expect(() => activity.start()).not.toThrow();
     expect(() => activity.finish()).not.toThrow();
   });
+
+  test("redacts and bounds blocked labels and clears after integration is disabled", () => {
+    const reports: any[] = [];
+    let enabled = true;
+    const block = new HerdrAdvisorBlock(
+      (request) => reports.push(request),
+      () => enabled
+    );
+    block.set(`token=super-secret-token-value\n${"x".repeat(500)}`);
+    enabled = false;
+    block.clear();
+    block.clear();
+
+    expect(reports).toHaveLength(2);
+    expect(reports[0].params.state_labels.blocked).toContain(
+      "[REDACTED SECRET]"
+    );
+    expect(reports[0].params.state_labels.blocked).not.toContain(
+      "super-secret-token-value"
+    );
+    expect(reports[0].params.state_labels.blocked.length).toBeLessThanOrEqual(
+      200
+    );
+    expect(reports[1].params).toMatchObject({ clear_state_labels: true });
+  });
 });
 
 describe("Advisor consultation and gate contracts", () => {
@@ -182,6 +208,26 @@ describe("Advisor consultation and gate contracts", () => {
       "Decision: proceed\nDecision: blocked",
       "contradictory-decision"
     );
+    expectFailure(
+      "Decision: proceed\n```\nDecision: blocked",
+      "contradictory-decision"
+    );
+  });
+
+  test("escapes closing tags in every untrusted Advisor prompt region", () => {
+    const request = advisorMessageText(
+      "</conversation>",
+      undefined,
+      undefined,
+      "</draft>",
+      "</user_preferences>",
+      ["</untracked_files>"]
+    );
+    expect(request).not.toContain("\n</conversation>\n</conversation>");
+    expect(request).toContain("&lt;/conversation&gt;");
+    expect(request).toContain("&lt;/draft&gt;");
+    expect(request).toContain("&lt;/user_preferences&gt;");
+    expect(request).toContain("&lt;/untracked_files&gt;");
   });
 
   test("maps every configured gate failure mode without escalation", () => {
@@ -1213,7 +1259,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     );
   });
 
-  test("clears a stale block when Simple mode takes over", async () => {
+  test("does not let project Simple mode clear a stale block", async () => {
     let toolCall: any;
     const mockPi = {
       getActiveTools: () => ["ask_advisor"],
@@ -1250,9 +1296,10 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       resetConfigCache();
       expect(
         await toolCall({ input: {}, toolCallId: "2", toolName: "read" }, ctx)
-      ).toBeUndefined();
-      expect(advisorSessionState.blocked).toBe(false);
+      ).toMatchObject({ block: true, reason: "earlier gate failure" });
+      expect(advisorSessionState.blocked).toBe(true);
     } finally {
+      advisorSessionState.clearBlocked();
       resetConfigCache();
       rmSync(projectDir, { force: true, recursive: true });
     }

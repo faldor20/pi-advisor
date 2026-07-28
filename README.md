@@ -16,6 +16,8 @@ The concept is simple, keep implementation on a fast model, borrow frontier reas
 
 ## Install
 
+Requires Pi 0.80.7 or later. The extension installs no dependencies of its own; Pi supplies the modules it uses at runtime.
+
 Install into your Pi agent environment:
 
 ```bash
@@ -102,7 +104,7 @@ Malformed, missing, duplicate, or contradictory decisions are gate failures. The
 
 ## Settings and configuration
 
-`/advisor-models` and `/advisor-settings` save to `advisor.json` in the Pi agent directory. If a trusted project already has its own configuration, Pi uses that file instead.
+`/advisor-models` and `/advisor-settings` save to global `advisor.json` in the Pi agent directory. Repository-controlled project `advisor.json` files are not applied; models, prompts, gates, budgets, disclosure, redaction, integrations, and consent remain under the user's global configuration.
 
 All fields are optional. This example shows the available settings and their normal defaults:
 
@@ -199,7 +201,7 @@ The optional Session Advisor Summary defaults to off. When enabled, it is local 
 
 It distinguishes regular Markdown advice from gate decisions and records the trigger, model, usage/cost when available, failures, budget, and execution effect.
 
-[Herdr](https://github.com/ogulcancelik/herdr) integration is enabled by default. It reports Advisor activity and blocked state through Herdr's metadata paths; disable it with `advisorHerdrIntegration`.
+[Herdr](https://github.com/ogulcancelik/herdr) integration is enabled by default. It reports Advisor activity and a bounded, redacted blocked-state summary through Herdr's metadata paths; disable it with `advisorHerdrIntegration`. Previously reported state is still cleared when integration is disabled.
 
 ## Development
 

@@ -583,13 +583,14 @@ const readConfig = (path: string): AdvisorConfig => {
 // loadConfig runs on every tool call and every consultation. Caching the parsed
 // file by path and stat identity removes that read and parse from the hot path
 // while still applying the full reset-then-apply sequence on each call.
-let configCache:
-  | { config: AdvisorConfig; identity: string; path: string }
-  | undefined;
+const configCache = new Map<
+  string,
+  { config: AdvisorConfig; identity: string }
+>();
 
 /** Drops the parsed-configuration cache; the next load re-reads from disk. */
 export const resetConfigCache = () => {
-  configCache = undefined;
+  configCache.clear();
 };
 
 /**
@@ -608,42 +609,34 @@ const configIdentity = (path: string): string => {
 
 const readConfigCached = (path: string): AdvisorConfig => {
   const identity = configIdentity(path);
-  const cached = configCache;
-  if (cached && cached.path === path && cached.identity === identity) {
+  const cached = configCache.get(path);
+  if (cached?.identity === identity) {
     return cached.config;
   }
   const config = readConfig(path);
-  configCache = { config, identity, path };
+  configCache.set(path, { config, identity });
   return config;
 };
 
-export const loadConfig = (ctx: ExtensionContext) => {
+export const loadConfig = (_ctx: ExtensionContext) => {
   resetDefaults();
-  const paths = configPaths(ctx);
-  const path = paths.find(
-    (candidate): candidate is string =>
-      candidate !== null && existsSync(candidate)
-  );
-  if (path) {
-    applyConfig(readConfigCached(path));
-  }
-  // Persistent outcome consent is global-only: project configuration cannot enable it.
   const global = join(getAgentDir(), "advisor.json");
   const globalConfig = existsSync(global)
     ? readConfigCached(global)
     : undefined;
-  // Never apply this field through project-first configuration selection.
+  if (globalConfig) {
+    applyConfig(globalConfig);
+  }
+  // Repository-controlled project configuration is never applied. Models,
+  // prompts, gates, budgets, disclosure, redaction, integrations, and consent
+  // remain under the user's global Pi configuration.
   advisorOutcomeLoggingRef = globalConfig?.advisorOutcomeLogging === true;
-  return path ?? null;
+  return existsSync(global) ? global : null;
 };
 
-/** Saves the ordinary project-preferred configuration without outcome consent. */
-export const saveConfig = (ctx: ExtensionContext) => {
-  const project = join(ctx.cwd, CONFIG_DIR_NAME, "advisor.json");
-  const path =
-    ctx.isProjectTrusted() && existsSync(project)
-      ? project
-      : join(getAgentDir(), "advisor.json");
+/** Saves user-controlled configuration globally without outcome consent. */
+export const saveConfig = (_ctx: ExtensionContext) => {
+  const path = join(getAgentDir(), "advisor.json");
   let existing: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8"));

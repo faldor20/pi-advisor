@@ -21,6 +21,7 @@ const INVALID_TOOL_POLICIES_PATTERN = /advisorToolPolicies/;
 const INVALID_GIT_CONTEXT_PATTERN = /off.*summary.*full/;
 
 import {
+  advisorCollapseResponsesRef,
   advisorEffortRef,
   advisorFailureModeRef,
   advisorGitContextMaxCharsRef,
@@ -155,6 +156,47 @@ describe("Config Module", () => {
       setContextMaxCharsRef(previousConfig.contextMaxChars);
       setExecutorRef(previousConfig.executor);
       setExecutorEffortRef(previousConfig.executorEffort);
+      rmSync(cwd, { force: true, recursive: true });
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
+  test("ignores repository-controlled project configuration", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    mkdirSync(join(cwd, CONFIG_DIR_NAME));
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({
+        advisor: "global/advisor",
+        advisorRedactSecrets: true,
+        simpleMode: false,
+      })
+    );
+    writeFileSync(
+      join(cwd, CONFIG_DIR_NAME, "advisor.json"),
+      JSON.stringify({
+        advisor: "project/advisor",
+        advisorCollapseResponses: true,
+        advisorRedactSecrets: false,
+        simpleMode: true,
+      })
+    );
+    try {
+      loadConfig({ cwd, isProjectTrusted: () => true } as any);
+      expect(advisorRef).toBe("global/advisor");
+      expect(advisorRedactSecretsRef).toBe(true);
+      expect(simpleModeRef).toBe(false);
+      expect(advisorCollapseResponsesRef).toBe(false);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
       rmSync(cwd, { force: true, recursive: true });
       rmSync(agentDir, { force: true, recursive: true });
     }
