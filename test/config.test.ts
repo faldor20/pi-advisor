@@ -13,7 +13,6 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 const AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
-const INVALID_EXECUTOR_PATTERN = /executor.*provider\/model string/;
 const UNKNOWN_CONFIG_KEY_PATTERN = /unknown key.*unexpected/;
 const INVALID_FAILURE_MODE_PATTERN =
   /block-session.*block-tool.*warn-and-continue/;
@@ -121,7 +120,7 @@ describe("Config Module", () => {
     expect(contextMaxCharsRef).toBe(0);
   });
 
-  test("loadConfig rejects a parseable config with invalid field types", () => {
+  test("loadConfig ignores invalid repository-controlled project config", () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
     const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
     const previousAgentDir = process.env[AGENT_DIR_ENV];
@@ -142,9 +141,10 @@ describe("Config Module", () => {
     process.env[AGENT_DIR_ENV] = agentDir;
 
     try {
-      expect(() =>
-        loadConfig({ cwd, isProjectTrusted: () => true } as any)
-      ).toThrow(INVALID_EXECUTOR_PATTERN);
+      expect(loadConfig({ cwd, isProjectTrusted: () => true } as any)).toBe(
+        join(agentDir, "advisor.json")
+      );
+      expect(executorRef).toBe("global/executor");
     } finally {
       if (previousAgentDir === undefined) {
         delete process.env[AGENT_DIR_ENV];
