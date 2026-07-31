@@ -38,6 +38,25 @@ export interface HerdrNotificationRequest {
 export type HerdrRequest = HerdrMetadataRequest | HerdrNotificationRequest;
 type Report = (request: HerdrRequest) => void;
 
+// Herdr only accepts semantic state from the pane's lifecycle authority, which
+// for pi is herdr's own herdr-agent-state extension (source "herdr:pi"). Socket
+// reports from any other source are dropped, so the blocked state has to be
+// signalled through the in-process pi event bus that integration listens on.
+type BlockedEmitter = (active: boolean, label: string) => void;
+let emitBlocked: BlockedEmitter | undefined;
+
+export const setHerdrBlockedEmitter = (emitter: BlockedEmitter | undefined) => {
+  emitBlocked = emitter;
+};
+
+const safeEmitBlocked = (active: boolean, label = "Advisor blocked") => {
+  try {
+    emitBlocked?.(active, label);
+  } catch {
+    /* Herdr is optional. */
+  }
+};
+
 const isControlCharacter = (character: string) =>
   character <= "\u001f" || character === "\u007f";
 
@@ -167,8 +186,14 @@ export class HerdrAdvisorBlock {
     if (!this.enabled()) {
       return;
     }
+    const label = cleanNotification(reason, 200);
+    const wasBlocked: boolean = this.#blocked;
+    if (!wasBlocked) {
+      // The listener refcounts, so only the false → true edge may emit.
+      safeEmitBlocked(true, label);
+    }
     this.#blocked = true;
-    this.safeReport({ blocked: cleanNotification(reason, 200) });
+    this.safeReport({ blocked: label });
   }
 
   clear() {
@@ -179,6 +204,7 @@ export class HerdrAdvisorBlock {
     }
     // Clearing previously reported state is a de-escalation and must still be
     // delivered if integration was disabled after the block was reported.
+    safeEmitBlocked(false);
     try {
       this.report({
         id: `${BLOCK_SOURCE}:${nextSequence()}`,

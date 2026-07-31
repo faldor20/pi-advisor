@@ -26,6 +26,7 @@ import {
   createHerdrNotificationRequest,
   HerdrAdvisorActivity,
   HerdrAdvisorBlock,
+  setHerdrBlockedEmitter,
 } from "../src/herdr.js";
 import {
   ADVISOR_DECISION_SYSTEM,
@@ -167,6 +168,25 @@ describe("Herdr Advisor activity", () => {
       200
     );
     expect(reports[1].params).toMatchObject({ clear_state_labels: true });
+  });
+
+  test("emits one herdr:blocked edge per block and one clear", () => {
+    const events: boolean[] = [];
+    setHerdrBlockedEmitter((active) => events.push(active));
+    try {
+      const block = new HerdrAdvisorBlock(
+        () => undefined,
+        () => true
+      );
+      block.set("first");
+      block.set("second");
+      block.clear();
+      block.clear();
+
+      expect(events).toEqual([true, false]);
+    } finally {
+      setHerdrBlockedEmitter(undefined);
+    }
   });
 });
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.8
+
+### Fixed
+
+- Advisor session blocks are reported to Herdr again. Herdr grants each pane a single lifecycle status authority, which for Pi is Herdr's own `herdr-agent-state` integration, and silently drops semantic state from any other source. The Advisor block now signals that integration over Pi's in-process event bus (`herdr:blocked`) instead of relying on display metadata alone, so a blocked pane shows `blocked` rather than `working`. Only the unblocked-to-blocked edge emits, because the listener refcounts; clears are always delivered.
+
 ## 0.2.7
 
 ### Security
