@@ -33,7 +33,8 @@ git -c diff.stat=false diff --no-ext-diff --check --no-stat
 - MUST keep session summaries local and ephemeral; MUST NOT send them to Herdr or persist them.
 - MUST document released user-facing behavior in README and CHANGELOG; MUST NOT document internal iterations, implementation reversions, or unreleased defects. Describe the delivered user outcome, not what was temporarily changed during development.
 - MUST preserve public `advisor.json` fields and unknown fields when saving configuration.
-- MUST run all checks above before reporting completion. MUST NOT commit or push unless asked. MUST NOT create or push release tags: CI manages tagging from `package.json`.
+- MUST commit completed, validated increments as often as practical while working so progress is not lost. Do not commit partial or failing work.
+- MUST run all checks above before reporting completion. MUST NOT push unless asked. MUST NOT create or push release tags: CI manages tagging from `package.json`.
 
 ## Common pitfalls
 
@@ -41,8 +42,8 @@ git -c diff.stat=false diff --no-ext-diff --check --no-stat
 
 ## Load when needed
 
-| What             | Where                           | When                                 |
-| ---------------- | ------------------------------- | ------------------------------------ |
-| Pi extension API | Pi docs `docs/extensions.md`    | Hooks, tools, UI, sessions, messages |
-| Herdr protocol   | `src/herdr.ts` and project docs | Herdr state/reporting changes        |
-| Release workflow | `.github/workflows/publish.yml` | Versioning, publishing, tags         |
+| What             | Where                                                                                                                                            | When                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| Pi extension API | [Pi extension docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) | Hooks, tools, UI, sessions, messages |
+| Herdr protocol   | [project guide](docs/herdr.md), [`src/herdr.ts`](src/herdr.ts), and [upstream stable API](https://herdr.dev/docs/socket-api/)                     | Herdr state/reporting changes        |
+| Release workflow | [`.github/workflows/publish.yml`](.github/workflows/publish.yml)                                                                                  | Versioning, publishing, tags         |
