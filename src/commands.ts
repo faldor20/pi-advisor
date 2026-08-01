@@ -48,10 +48,11 @@ import {
   splitRef,
 } from "./config.js";
 import { herdrAdvisorActivity, notifyHerdrAdvisorFailure } from "./herdr.js";
+import type { AdvisorSessionState } from "./session-state.js";
 import {
   adviceForDisplay,
-  advisorSessionState,
   consultAdvisor,
+  advisorSessionState as defaultAdvisorSessionState,
   hasSoundVerdict,
   renderAdvisorCallBox,
   renderAdvisorResponseHeader,
@@ -139,8 +140,13 @@ const findConfiguredModel = (ctx: ExtensionContext, ref: string) => {
 
 export const registerCommands = (
   pi: ExtensionAPI,
-  dependencies: { consult?: ManualConsult } = {}
+  dependencies: {
+    consult?: ManualConsult;
+    sessionState?: AdvisorSessionState;
+  } = {}
 ) => {
+  const advisorSessionState =
+    dependencies.sessionState ?? defaultAdvisorSessionState;
   const flowEnabled = () => pi.getActiveTools().includes("ask_advisor");
   const requestAdvisor =
     dependencies.consult ??
@@ -233,12 +239,29 @@ export const registerCommands = (
     return {};
   };
 
+  const loadCommandConfig = (ctx: ExtensionContext) => {
+    try {
+      loadConfig(ctx);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      notify(
+        ctx,
+        `Advisor command could not load configuration: ${message} Fix advisor.json and retry.`,
+        "error"
+      );
+      return false;
+    }
+  };
+
   const activateAdvisor = async (
     args: string,
     ctx: ExtensionContext,
     announce = true
   ) => {
-    loadConfig(ctx);
+    if (!loadCommandConfig(ctx)) {
+      return;
+    }
     const previous = {
       advisor: advisorRef,
       contextMaxChars: contextMaxCharsRef,
@@ -369,7 +392,9 @@ export const registerCommands = (
     description:
       "Consult the Advisor in parallel; accepts an optional focused question and fans its response out to the Executor",
     handler: (args, ctx) => {
-      loadConfig(ctx);
+      if (!loadCommandConfig(ctx)) {
+        return Promise.resolve();
+      }
       if (
         !(
           isSimpleMode() ||
@@ -409,8 +434,7 @@ export const registerCommands = (
     description:
       "Select and persist the Executor and Advisor models with reasoning levels",
     handler: async (_args, ctx) => {
-      loadConfig(ctx);
-      if (!ctx.hasUI) {
+      if (!(loadCommandConfig(ctx) && ctx.hasUI)) {
         return;
       }
       const refs = ctx.modelRegistry
@@ -488,8 +512,7 @@ export const registerCommands = (
     description: "Configure Advisor context and reasoning effort",
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one settings form maps every persisted control.
     handler: async (_args, ctx) => {
-      loadConfig(ctx);
-      if (!ctx.hasUI) {
+      if (!(loadCommandConfig(ctx) && ctx.hasUI)) {
         return;
       }
 

@@ -13,7 +13,6 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 const AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
-const UNKNOWN_CONFIG_KEY_PATTERN = /unknown key.*unexpected/;
 const INVALID_FAILURE_MODE_PATTERN =
   /block-session.*block-tool.*warn-and-continue/;
 const INVALID_TOOL_POLICIES_PATTERN = /advisorToolPolicies/;
@@ -314,7 +313,7 @@ describe("Config Module", () => {
     }
   });
 
-  test("uses safe defaults and rejects unknown configuration keys with remediation", () => {
+  test("uses safe defaults and validates known configuration keys", () => {
     expect(advisorFailureModeRef).toBe("block-session");
     expect(simpleModeRef).toBe(false);
     expect(alwaysOnRef).toBe(false);
@@ -328,9 +327,9 @@ describe("Config Module", () => {
     );
     expect(advisorRedactSecretsRef).toBe(false);
     expect(advisorToolPoliciesRef).toEqual({});
-    expect(() =>
-      validateConfig({ unexpected: true }, "/tmp/advisor.json")
-    ).toThrow(UNKNOWN_CONFIG_KEY_PATTERN);
+    expect(validateConfig({ unexpected: true }, "/tmp/advisor.json")).toBe(
+      true
+    );
     expect(() =>
       validateConfig({ gateFailureMode: "bad" }, "/tmp/advisor.json")
     ).toThrow(INVALID_FAILURE_MODE_PATTERN);
@@ -453,6 +452,19 @@ describe("Config Module", () => {
         gateFailureMode: "warn-and-continue",
         simpleMode: true,
       });
+
+      const warnings: string[] = [];
+      const ctx = {
+        cwd,
+        hasUI: true,
+        isProjectTrusted: () => false,
+        ui: { notify: (message: string) => warnings.push(message) },
+      } as any;
+      expect(() => loadConfig(ctx)).not.toThrow();
+      expect(() => loadConfig(ctx)).not.toThrow();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("futureSetting");
+      expect(contextMaxCharsRef).toBe(Number.MAX_SAFE_INTEGER);
     } finally {
       if (previousAgentDir === undefined) {
         delete process.env[AGENT_DIR_ENV];

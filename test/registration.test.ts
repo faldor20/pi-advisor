@@ -28,6 +28,7 @@ import {
   HerdrAdvisorBlock,
   setHerdrBlockedEmitter,
 } from "../src/herdr.js";
+import { AdvisorSessionState } from "../src/session-state.js";
 import {
   ADVISOR_DECISION_SYSTEM,
   ADVISOR_SYSTEM,
@@ -37,6 +38,7 @@ import {
   advisorSessionState,
   gateFailureEffectForMode,
   parseAutomaticDecision,
+  registerAdvisorTool,
   resolveAdvisorRequest,
 } from "../src/tools.js";
 import { AdvisorSettingsSelector } from "../src/ui.js";
@@ -1328,6 +1330,37 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     );
   });
 
+  test("keeps concurrent registrations' safety state isolated", () => {
+    const firstState = new AdvisorSessionState();
+    const secondState = new AdvisorSessionState();
+    const firstStarts: Array<() => void> = [];
+    const secondStarts: Array<() => void> = [];
+    const makePi = (starts: Array<() => void>) =>
+      ({
+        getActiveTools: () => [],
+        on(event: string, handler: any) {
+          if (event === "session_start") {
+            starts.push(handler);
+          }
+        },
+        registerMessageRenderer: () => undefined,
+        registerTool: () => undefined,
+      }) as unknown as ExtensionAPI;
+
+    registerAdvisorTool(makePi(firstStarts), firstState);
+    registerAdvisorTool(makePi(secondStarts), secondState);
+    firstStarts[0]();
+    firstState.block("first session remains blocked");
+    firstState.consumeCall();
+
+    secondStarts[0]();
+
+    expect(firstState.blockedReason).toBe("first session remains blocked");
+    expect(firstState.consumedCalls).toBe(1);
+    expect(secondState.blocked).toBe(false);
+    expect(secondState.consumedCalls).toBe(0);
+  });
+
   test("keeps a recorded session block active after ask_advisor is disabled", () => {
     let toolCall: any;
     const mockPi = {
@@ -1342,7 +1375,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       registerMessageRenderer: () => undefined,
       registerTool: () => undefined,
     } as unknown as ExtensionAPI;
-    registerExtension(mockPi);
+    registerAdvisorTool(mockPi);
     advisorSessionState.resetTask();
     advisorSessionState.block("still blocked");
     try {
@@ -1393,7 +1426,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       registerMessageRenderer: () => undefined,
       registerTool: () => undefined,
     } as unknown as ExtensionAPI;
-    registerExtension(mockPi);
+    registerAdvisorTool(mockPi);
 
     // loadConfig runs per tool call, so the mode must come from a real file.
     const projectDir = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
@@ -1423,6 +1456,60 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       advisorSessionState.clearBlocked();
       resetConfigCache();
       rmSync(projectDir, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("Command configuration errors", () => {
+  test("notifies and exits every config-loading command", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    writeFileSync(join(agentDir, "advisor.json"), "{ not valid json");
+    resetConfigCache();
+    const commands = new Map<string, any>();
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+    } as unknown as ExtensionAPI;
+    const notifications: Array<{ message: string; level: string }> = [];
+    const context = {
+      cwd: tmpdir(),
+      hasUI: true,
+      isProjectTrusted: () => false,
+      ui: {
+        notify: (message: string, level: string) =>
+          notifications.push({ level, message }),
+      },
+    } as any;
+
+    try {
+      registerCommands(mockPi);
+      await Promise.all(
+        ["advisor", "advisor-manual", "advisor-models", "advisor-settings"].map(
+          (name) =>
+            expect(
+              commands.get(name).handler("", context)
+            ).resolves.toBeUndefined()
+        )
+      );
+      expect(notifications).toHaveLength(4);
+      for (const notification of notifications) {
+        expect(notification.level).toBe("error");
+        expect(notification.message).toContain("advisor.json");
+        expect(notification.message).toContain("Fix");
+      }
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
     }
   });
 });

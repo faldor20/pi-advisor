@@ -14,6 +14,7 @@ import {
 import {
   advisorGitContextBudget,
   advisorMessageText,
+  advisorRepositoryContext,
   gitContextNote,
 } from "../src/tools.js";
 
@@ -218,6 +219,17 @@ describe("Git context authorization", () => {
     };
     expect(gitContextNote(collected, "full", "summary")).toContain("withheld");
     expect(gitContextNote(collected, "summary", "summary")).toBeUndefined();
+  });
+
+  test("zero Git budget keeps the withheld-context warning", () => {
+    const disabled = {
+      level: "off" as const,
+      status: "disabled" as const,
+      text: "",
+    };
+    const changes = advisorRepositoryContext(disabled, "summary", "summary", 0);
+    expect(changes).toContain("withheld");
+    expect(advisorMessageText("", undefined, changes)).toContain("withheld");
   });
 
   test("repository context cannot claim more than half the budget", () => {

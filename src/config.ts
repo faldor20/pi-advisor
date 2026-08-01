@@ -305,16 +305,10 @@ const invalidConfigValue = (
   );
 };
 
-const validateKnownKeys = (config: ConfigRecord, path: string) => {
-  const unknownKeys = Object.keys(config).filter(
+const unknownConfigKeys = (config: ConfigRecord) =>
+  Object.keys(config).filter(
     (key) => !CONFIG_KEYS.has(key as keyof AdvisorConfig)
   );
-  if (unknownKeys.length > 0) {
-    throw new TypeError(
-      `Invalid advisor configuration at ${path}: unknown key(s) ${unknownKeys.map((key) => JSON.stringify(key)).join(", ")}. Remove them or upgrade pi-advisor.`
-    );
-  }
-};
 
 const validateStringValues = (config: ConfigRecord, path: string) => {
   for (const key of STRING_CONFIG_KEYS) {
@@ -406,7 +400,6 @@ export const validateConfig = (
     );
   }
   const config = value as ConfigRecord;
-  validateKnownKeys(config, path);
   validateStringValues(config, path);
   validateBooleanValues(config, path);
   validateNumericValues(config, path);
@@ -587,10 +580,12 @@ const configCache = new Map<
   string,
   { config: AdvisorConfig; identity: string }
 >();
+const warnedUnknownConfigIdentities = new Set<string>();
 
 /** Drops the parsed-configuration cache; the next load re-reads from disk. */
 export const resetConfigCache = () => {
   configCache.clear();
+  warnedUnknownConfigIdentities.clear();
 };
 
 /**
@@ -626,6 +621,19 @@ export const loadConfig = (_ctx: ExtensionContext) => {
     : undefined;
   if (globalConfig) {
     applyConfig(globalConfig);
+    const unknownKeys = unknownConfigKeys(globalConfig as ConfigRecord);
+    const warningIdentity = `${global}:${configIdentity(global)}`;
+    if (
+      unknownKeys.length > 0 &&
+      _ctx.hasUI &&
+      !warnedUnknownConfigIdentities.has(warningIdentity)
+    ) {
+      _ctx.ui.notify(
+        `Advisor configuration at ${global} contains unrecognized key(s) ${unknownKeys.map((key) => JSON.stringify(key)).join(", ")}. They were preserved but ignored; check for typos or upgrade pi-advisor.`,
+        "warning"
+      );
+      warnedUnknownConfigIdentities.add(warningIdentity);
+    }
   }
   // Repository-controlled project configuration is never applied. Models,
   // prompts, gates, budgets, disclosure, redaction, integrations, and consent

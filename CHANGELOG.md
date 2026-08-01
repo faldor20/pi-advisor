@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Kept recorded session blocks enforced after `/advisor-off`, restored configuration after failed activation, and charged Advisor-call budgets only when consultation execution begins.
 - Kept conversation and repository disclosure within their configured caps and explicitly identified disabled repository context as withheld.
 - Made concurrent outcome records append safely with one exclusively initialized digest salt, and stopped superseded manual consultations from entering session summaries.
+- Preserved and ignored forward-compatible `advisor.json` fields with a warning, and made malformed configuration errors actionable in every Advisor command.
+- Isolated call budgets, repeated-action counters, and safety blocks between concurrent same-process sessions.
+- Kept the repository-context withheld warning visible when its disclosure budget is zero.
 
 ## 0.2.8
 

@@ -44,6 +44,8 @@ Restart or reload Pi after installation.
 2. Run `/advisor-models` to choose the Executor and Advisor models.
 3. Run `/advisor-settings` to configure review gates, context, privacy, and limits.
 
+Unknown fields in `advisor.json` are preserved for forward compatibility and reported as non-blocking warnings. Invalid recognized values remain errors, and Advisor commands show the configuration problem without crashing their handlers.
+
 You can also enable the flow and select both models at once:
 
 ```text

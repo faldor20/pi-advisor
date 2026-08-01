@@ -159,6 +159,20 @@ const LEVEL_WITHHELD: Record<string, boolean> = {
   "no-changes": false,
 };
 
+export const advisorRepositoryContext = (
+  result: GitContextResult,
+  requested: GitContextLevel,
+  allowed: GitContextLevel,
+  budget: number
+) => {
+  const note = gitContextNote(result, requested, allowed);
+  const payload = capRepositoryContext(
+    escapeRepositoryText(result.text),
+    budget
+  ).text;
+  return [note, payload].filter(Boolean).join("\n\n");
+};
+
 /**
  * The conversation boundary for outgoing Advisor requests. Repository context is
  * the only other egress path; both are assembled by advisorMessageText and both
@@ -435,11 +449,14 @@ const collectAdvisorResponse = async (
   );
   // The note is placed first so a cap can never drop the statement that the
   // Advisor's view of the repository is limited.
-  const note = gitContextNote(changes, gitContext ?? allowed, level);
-  const changeText = capRepositoryContext(
-    [note, escapeRepositoryText(changes.text)].filter(Boolean).join("\n\n"),
+  // The disclosure warning is control metadata, not repository payload. Keep it
+  // outside the zero-byte Git budget so disabling disclosure cannot erase it.
+  const changeText = advisorRepositoryContext(
+    changes,
+    gitContext ?? allowed,
+    level,
     gitBudget
-  ).text;
+  );
   // Repository context spends part of the shared budget, so a large patch
   // cannot silently push the conversation past the model's context window.
   const conversation = advisorRequestConversation(
@@ -935,8 +952,10 @@ const renderAdvisorResult = (
   return box;
 };
 
-export const registerAdvisorTool = (pi: ExtensionAPI) => {
-  const session = advisorSessionState;
+export const registerAdvisorTool = (
+  pi: ExtensionAPI,
+  session: AdvisorSessionState = advisorSessionState
+) => {
   const reservedCalls = new Set<string>();
 
   pi.registerMessageRenderer?.(
