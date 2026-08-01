@@ -100,6 +100,6 @@ Malformed, missing, duplicate, or contradictory decisions are gate failures. The
 | Shared budget exhausted | Block session | Block tool action | Warn and continue |
 | `Decision: blocked` | Block session | Block tool action | Warn and continue |
 
-`advisorBlockOnBlocked` controls whether a session block immediately aborts the active run. It never turns a session block into a tool-only block.
+`advisorBlockOnBlocked` controls whether a session block immediately aborts the active run. It never turns a session block into a tool-only block. A recorded session block remains fail-safe after `/advisor-off`; start a new session to resume tool execution.
 
 See [Privacy and data handling](privacy.md) for repository context, disclosure, redaction, and integrations.

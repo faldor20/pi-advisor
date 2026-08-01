@@ -418,6 +418,7 @@ describe("Extension Registration", () => {
       },
     } as unknown as ExtensionAPI;
 
+    advisorSessionState.resetTask();
     registerCommands(mockPi, { consult: async () => pendingConsult });
     await commands.get("advisor-manual").handler("", {
       cwd: tmpdir(),
@@ -430,6 +431,7 @@ describe("Extension Registration", () => {
     resolveConsult({ markdown: "Too late.", thinkingText: "" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sent).toEqual([]);
+    expect(advisorSessionState.summary(undefined)).toBeUndefined();
   });
 
   test("replaces an in-flight manual consultation with a newer request", async () => {
@@ -1203,6 +1205,53 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     return { saved, selector };
   };
 
+  test("steps every off-preset numeric setting from its configured value", () => {
+    const { saved, selector } = openSelector({
+      contextMaxChars: 12_000,
+      gitContextMaxChars: 30_000,
+      loopThreshold: 7,
+      maxCallsPerSession: 7,
+      toolResultMaxBytes: 75_000,
+      toolResultMaxLines: 3000,
+    });
+    for (const row of [
+      "Context window",
+      "Loop threshold",
+      "Max Advisor calls/session",
+      "Tool result lines",
+      "Tool result bytes",
+      "Repository context chars",
+    ]) {
+      focusSettingsRow(selector, row);
+      selector.handleInput("\u001b[C");
+    }
+    saveViaKeyboard(selector);
+    expect(saved[0]).toMatchObject({
+      contextMaxChars: 15_000,
+      gitContextMaxChars: 50_000,
+      loopThreshold: 8,
+      maxCallsPerSession: 10,
+      toolResultMaxBytes: 100 * 1024,
+      toolResultMaxLines: 5000,
+    });
+  });
+
+  test("steps custom numeric values down to the adjacent preset", () => {
+    const { saved, selector } = openSelector({
+      contextMaxChars: 12_000,
+      maxCallsPerSession: 7,
+    });
+    focusSettingsRow(selector, "Context window");
+    selector.handleInput("\u001b[D");
+    focusSettingsRow(selector, "Max Advisor calls/session");
+    selector.handleInput("\u001b[D");
+    saveViaKeyboard(selector);
+    expect(saved[0]).toMatchObject({
+      contextMaxChars: 10_000,
+      maxCallsPerSession: 5,
+    });
+  });
+
   test("focuses the advanced Context slider and changes its value", () => {
     const { selector } = openSelector({
       contextMaxChars: 10_000,
@@ -1279,6 +1328,58 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     );
   });
 
+  test("keeps a recorded session block active after ask_advisor is disabled", () => {
+    let toolCall: any;
+    const mockPi = {
+      events: { emit: () => undefined },
+      getActiveTools: () => [],
+      on(event: string, handler: any) {
+        if (event === "tool_call") {
+          toolCall = handler;
+        }
+      },
+      registerCommand: () => undefined,
+      registerMessageRenderer: () => undefined,
+      registerTool: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+    advisorSessionState.resetTask();
+    advisorSessionState.block("still blocked");
+    try {
+      expect(
+        toolCall(
+          { input: {}, toolCallId: "disabled", toolName: "read" },
+          { hasUI: false }
+        )
+      ).toMatchObject({ block: true, reason: "still blocked" });
+    } finally {
+      advisorSessionState.clearBlocked();
+    }
+  });
+
+  test("reserves ask_advisor without consuming its budget", () => {
+    let toolCall: any;
+    const mockPi = {
+      events: { emit: () => undefined },
+      getActiveTools: () => ["ask_advisor"],
+      on(event: string, handler: any) {
+        if (event === "tool_call") {
+          toolCall = handler;
+        }
+      },
+      registerCommand: () => undefined,
+      registerMessageRenderer: () => undefined,
+      registerTool: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+    advisorSessionState.resetTask();
+    toolCall(
+      { input: {}, toolCallId: "reserved", toolName: "ask_advisor" },
+      { cwd: tmpdir(), hasUI: false, isProjectTrusted: () => false }
+    );
+    expect(advisorSessionState.consumedCalls).toBe(0);
+  });
+
   test("does not let project Simple mode clear a stale block", async () => {
     let toolCall: any;
     const mockPi = {
@@ -1333,7 +1434,11 @@ describe("Advisor argument persistence", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     writeFileSync(
       join(agentDir, "advisor.json"),
-      JSON.stringify({ contextMaxChars: 15_000, executor: "good/executor" })
+      JSON.stringify({
+        alwaysOn: true,
+        contextMaxChars: 15_000,
+        executor: "good/executor",
+      })
     );
     resetConfigCache();
     const commands = new Map<string, any>();
@@ -1367,6 +1472,12 @@ describe("Advisor argument persistence", () => {
       } as any);
 
       expect(notes.join("\n")).toContain("Executor model not found");
+      await commands.get("advisor-off").handler("", {
+        cwd: agentDir,
+        hasUI: true,
+        isProjectTrusted: () => false,
+        ui: { notify: () => undefined },
+      } as any);
       expect(
         JSON.parse(readFileSync(join(agentDir, "advisor.json"), "utf8"))
           .executor

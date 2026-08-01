@@ -288,28 +288,41 @@ const selectRecentEntries = (entries: string[], maxChars: number): string => {
   if (joined.length <= maxChars || maxChars === Number.MAX_SAFE_INTEGER) {
     return joined;
   }
+  const newestTruncated = "[Newest entry truncated]";
+  if (entries.length === 1) {
+    const prefix = `${newestTruncated}${separator}`;
+    return `${prefix}${entries[0].slice(0, Math.max(0, maxChars - prefix.length))}`.slice(
+      0,
+      maxChars
+    );
+  }
   const selected: string[] = [];
-  // Track the joined length instead of re-joining the accumulator each step;
-  // long branches with a large maxChars are otherwise quadratic in bytes.
   let selectedLength = 0;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
+    const candidateCount = selected.length + 1;
+    const omitted = entries.length - candidateCount;
+    const marker = `[Older context omitted: ${omitted} complete entr${omitted === 1 ? "y" : "ies"}]`;
     const candidateLength =
       selectedLength +
       entry.length +
-      (selected.length === 0 ? 0 : separator.length);
-    if (candidateLength <= maxChars || selected.length === 0) {
-      selected.unshift(entry);
-      selectedLength = candidateLength;
-    } else {
+      (selected.length > 0 ? separator.length : 0);
+    if (marker.length + separator.length + candidateLength > maxChars) {
       break;
     }
+    selected.unshift(entry);
+    selectedLength = candidateLength;
   }
-  const omitted = entries.length - selected.length;
-  const suffix = selected.length
-    ? `${separator}${selected.join(separator)}`
-    : "";
-  return `[Older context omitted: ${omitted} complete entr${omitted === 1 ? "y" : "ies"}]${suffix}`;
+  const omitted = entries.length - Math.max(1, selected.length);
+  const marker = `[Older context omitted: ${omitted} complete entr${omitted === 1 ? "y" : "ies"}]`;
+  if (selected.length > 0) {
+    return `${marker}${separator}${selected.join(separator)}`;
+  }
+  const prefix = `${marker}${separator}${newestTruncated}${separator}`;
+  return `${prefix}${entries.at(-1)?.slice(0, Math.max(0, maxChars - prefix.length)) ?? ""}`.slice(
+    0,
+    maxChars
+  );
 };
 
 export const recentConversation = (

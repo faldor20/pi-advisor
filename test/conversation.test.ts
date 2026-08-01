@@ -46,10 +46,41 @@ describe("Conversation Module", () => {
         ],
       },
     } as any;
-    const result = recentConversation(ctx, 12);
-    expect(result).toContain("[Older context omitted: 1 complete entry]");
-    expect(result).toContain("Executor: new");
-    expect(result).not.toContain("ser: old");
+    const result = recentConversation(ctx, 22);
+    expect(result.length).toBeLessThanOrEqual(22);
+    expect(result).toContain("[Older context");
+    expect(result).not.toContain("User: old");
+  });
+
+  test("truncates a lone oversized newest entry within the full marker budget", () => {
+    const ctx = {
+      sessionManager: {
+        getBranch: () => [
+          {
+            message: { content: "x".repeat(200), role: "user" },
+            type: "message",
+          },
+        ],
+      },
+    } as any;
+    const result = recentConversation(ctx, 60);
+    expect(result.length).toBeLessThanOrEqual(60);
+    expect(result).not.toContain("complete entries");
+    expect(result).toContain("User:");
+  });
+
+  test("budgets an omitted-context marker that consumes the whole cap", () => {
+    const ctx = {
+      sessionManager: {
+        getBranch: () => [
+          { message: { content: "old", role: "user" }, type: "message" },
+          { message: { content: "new", role: "user" }, type: "message" },
+        ],
+      },
+    } as any;
+    const result = recentConversation(ctx, 10);
+    expect(result).toHaveLength(10);
+    expect(result).not.toContain("0 complete entries");
   });
 
   test("oversized tool results preserve head and tail sections", () => {

@@ -60,8 +60,12 @@ export const capRepositoryContext = (value: string, maxChars: number) => {
   if (value.length <= maxChars) {
     return { text: value, truncated: false };
   }
+  const contentChars = Math.max(0, maxChars - TRUNCATION_NOTICE.length);
   return {
-    text: `${value.slice(0, Math.max(0, maxChars - TRUNCATION_NOTICE.length))}${TRUNCATION_NOTICE}`,
+    text:
+      maxChars < TRUNCATION_NOTICE.length
+        ? TRUNCATION_NOTICE.slice(0, maxChars)
+        : `${value.slice(0, contentChars)}${TRUNCATION_NOTICE}`,
     truncated: true,
   };
 };

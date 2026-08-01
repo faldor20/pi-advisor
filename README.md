@@ -23,7 +23,7 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 
 ## Install
 
-Requires Pi 0.80.7 or later. The extension installs no dependencies of its own; Pi supplies its runtime modules.
+Current release: **0.2.9**. Requires Pi 0.80.7 or later. The extension installs no dependencies of its own; Pi supplies its runtime modules.
 
 ```bash
 # npm
@@ -77,7 +77,7 @@ The Executor calls `ask_advisor({})` for a general review. It can pass a targete
 
 Advisor context can include user messages, tool calls, tool results, and repository information. Secret redaction is off by default, and tools without an explicit disclosure policy default to full context. Review the privacy settings before using the extension with sensitive work.
 
-Repository context is configurable from no access through changed-file summaries to a capped patch. Untracked file contents require a separate explicit opt-in.
+Repository context is configurable from no access through changed-file summaries to a capped patch. When context is disabled or its budget is zero, the Advisor is told it was withheld rather than shown an apparently clean tree. Untracked file contents require a separate explicit opt-in.
 
 ## Documentation
 

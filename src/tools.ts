@@ -141,6 +141,8 @@ export const gitContextNote = (
     return `Repository context was limited to "${allowed}" by user configuration; a fuller view was requested but withheld.`;
   }
   switch (result.status) {
+    case "disabled":
+      return "Repository context was disabled or had no disclosure budget; it was withheld. Do not assume the working tree is clean.";
     case "no-changes":
       return "The working tree has no uncommitted changes.";
     case "not-a-repository":
@@ -668,7 +670,6 @@ const reserveAdvisorCall = (
     notifyHerdrAdvisorFailure("Advisor budget exhausted", message);
     return { block: true, reason: message };
   }
-  session.consumeCall();
   reservedCalls.add(event.toolCallId);
   return {};
 };
@@ -1021,16 +1022,16 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
   });
 
   pi.on("tool_call", (event, ctx) => {
-    if (!pi.getActiveTools().includes("ask_advisor")) {
-      return;
-    }
-    loadConfig(ctx);
-    if (!isSimpleMode() && session.blocked) {
+    if (session.blocked) {
       return {
         block: true,
         reason: session.blockedReason ?? "Advisor session is blocked.",
       };
     }
+    if (!pi.getActiveTools().includes("ask_advisor")) {
+      return;
+    }
+    loadConfig(ctx);
     const reservation = reserveAdvisorCall(event, ctx, session, reservedCalls);
     if (event.toolName === "ask_advisor") {
       return reservation;
@@ -1039,6 +1040,9 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
   });
 
   pi.on("agent_settled", (_event, ctx) => {
+    // Any reservation still present never reached execute (for example because
+    // another handler blocked it or the turn was aborted).
+    reservedCalls.clear();
     if (isSimpleMode() || session.blocked || !advisorSessionSummaryRef) {
       return;
     }
@@ -1057,7 +1061,8 @@ export const registerAdvisorTool = (pi: ExtensionAPI) => {
     description:
       "Consult the on-demand Advisor model for strategic guidance. Call with an empty object for a contextual review; attach an optional draft for concrete plan or completion review.",
     async execute(_id, params, signal, onUpdate, ctx) {
-      if (!(reservedCalls.delete(_id) || isSimpleMode())) {
+      reservedCalls.delete(_id);
+      if (!isSimpleMode()) {
         if (!session.canConsult(advisorMaxCallsPerSessionRef)) {
           throw new Error("Advisor call budget exhausted for this session.");
         }

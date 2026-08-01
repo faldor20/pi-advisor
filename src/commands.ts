@@ -9,6 +9,7 @@ import {
   advisorMaxCallsPerSessionRef,
   advisorRef,
   alwaysOnRef,
+  contextMaxCharsRef,
   executorEffortRef,
   executorRef,
   getAdvisorSettings,
@@ -155,15 +156,15 @@ export const registerCommands = (
     herdrAdvisorActivity.start();
     return requestAdvisor(ctx, question, controller.signal)
       .then(({ markdown }) => {
+        if (controller.signal.aborted) {
+          return;
+        }
         advisorSessionState.recordInvocation({
           executionEffect: "continued",
           kind: "markdown",
           model: advisorRef,
           trigger: "manual",
         });
-        if (controller.signal.aborted) {
-          return;
-        }
         pi.sendMessage(
           {
             content: `Manual Advisor consultation${question ? ` (${question})` : ""}:\n\n${markdown}`,
@@ -238,13 +239,25 @@ export const registerCommands = (
     announce = true
   ) => {
     loadConfig(ctx);
+    const previous = {
+      advisor: advisorRef,
+      contextMaxChars: contextMaxCharsRef,
+      executor: executorRef,
+    };
+    const restoreRefs = () => {
+      setAdvisorRef(previous.advisor);
+      setContextMaxCharsRef(previous.contextMaxChars);
+      setExecutorRef(previous.executor);
+    };
     const argumentError = parseArgs(args);
     if (argumentError) {
+      restoreRefs();
       notify(ctx, argumentError, "error");
       return;
     }
     const { error } = await resolveActivationModels(ctx);
     if (error) {
+      restoreRefs();
       notify(ctx, error, "error");
       return;
     }

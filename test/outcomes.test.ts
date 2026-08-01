@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendOutcome, outcomeLogPath } from "../src/outcomes.js";
@@ -37,6 +45,50 @@ describe("outcome log", () => {
       expect(raw).not.toContain("SENTINEL_PROMPT");
       expect(raw).not.toContain("/private/path");
       expect(raw).not.toContain("session-123");
+      chmodSync(outcomeLogPath(), 0o644);
+      await appendOutcome({
+        adoption: "unknown",
+        advice: "second",
+        trigger: "manual",
+        validationStatus: "not-run",
+      });
+      expect(statSync(outcomeLogPath()).mode % 0o1000).toBe(0o600);
+    } finally {
+      if (prior === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = prior;
+      }
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps concurrent appends and uses one exclusively created salt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-advisor-outcomes-"));
+    const prior = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = dir;
+    try {
+      writeFileSync(join(dir, "advisor-outcomes-salt"), "");
+      const staleLock = `${outcomeLogPath()}.lock`;
+      writeFileSync(staleLock, "");
+      const stale = new Date(Date.now() - 60_000);
+      utimesSync(staleLock, stale, stale);
+      await Promise.all(
+        Array.from({ length: 20 }, () =>
+          appendOutcome({
+            adoption: "unknown",
+            advice: "same advice",
+            trigger: "manual",
+            validationStatus: "not-run",
+          })
+        )
+      );
+      const records = readFileSync(outcomeLogPath(), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(records).toHaveLength(20);
+      expect(new Set(records.map((record) => record.adviceHash)).size).toBe(1);
     } finally {
       if (prior === undefined) {
         delete process.env.PI_CODING_AGENT_DIR;

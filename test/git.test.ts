@@ -194,6 +194,21 @@ describe("Git context authorization", () => {
     }
   });
 
+  test("hard-caps repository context below the notice length", () => {
+    const capped = capRepositoryContext("long repository context", 8);
+    expect(capped.truncated).toBe(true);
+    expect(capped.text).toHaveLength(8);
+  });
+
+  test("marks disabled repository context as withheld", () => {
+    const disabled = {
+      level: "off" as const,
+      status: "disabled" as const,
+      text: "",
+    };
+    expect(gitContextNote(disabled, "off", "off")).toContain("withheld");
+  });
+
   test("tells the Advisor when a fuller view was withheld", () => {
     const collected = {
       level: "summary" as const,

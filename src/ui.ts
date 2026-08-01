@@ -24,6 +24,18 @@ interface SearchableModelSelectorOptions {
   title: string;
   tui: RenderRequester;
 }
+const stepNumericPreset = (
+  current: number,
+  presets: number[],
+  direction: number
+) => {
+  const values = presets.includes(current)
+    ? presets
+    : [...presets, current].sort((a, b) => a - b);
+  const index = values.indexOf(current);
+  return values[Math.max(0, Math.min(values.length - 1, index + direction))];
+};
+
 interface AdvisorSettingsSelectorOptions {
   effortLevels: string[];
   initial: AdvisorSettings;
@@ -304,14 +316,24 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     this.editingCustom = false;
     this.editingPolicies = false;
     this.policiesError = undefined;
-    this.options = options;
     // Retain every advanced value even when Simple mode hides its controls.
     this.settings = { ...options.initial };
-    this.contextIndex = Math.max(
-      0,
-      options.presets.findIndex(
-        (preset) => preset.value === this.settings.contextMaxChars
-      )
+    const configuredContext = this.settings.contextMaxChars;
+    const presets = options.presets.some(
+      (preset) => preset.value === configuredContext
+    )
+      ? [...options.presets]
+      : [
+          ...options.presets,
+          {
+            description: "Custom configured value",
+            label: String(configuredContext),
+            value: configuredContext,
+          },
+        ].sort((a, b) => a.value - b.value);
+    this.options = { ...options, presets };
+    this.contextIndex = presets.findIndex(
+      (preset) => preset.value === configuredContext
     );
     this.effortIndex = Math.max(
       0,
@@ -746,6 +768,7 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     tui.requestRender();
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one keyboard dispatcher maps each settings row to its bounded adjustment.
   private adjust(direction: number): void {
     switch (this.selectedRowId()) {
       case "simpleMode":
@@ -808,11 +831,14 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         );
         break;
       case "maxCallsPerSession": {
-        const values = [undefined, 0, 1, 2, 3, 5, 10, 25, 50];
-        const index = Math.max(
-          0,
-          values.indexOf(this.settings.maxCallsPerSession)
-        );
+        const current = this.settings.maxCallsPerSession;
+        const numeric = [0, 1, 2, 3, 5, 10, 25, 50];
+        const sorted =
+          current === undefined || numeric.includes(current)
+            ? numeric
+            : [...numeric, current].sort((a, b) => a - b);
+        const values: (number | undefined)[] = [undefined, ...sorted];
+        const index = values.indexOf(current);
         this.settings.maxCallsPerSession =
           values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
@@ -865,33 +891,27 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         break;
       }
       case "gitContextMaxChars": {
-        const values = [0, 5000, 10_000, 20_000, 50_000, 100_000];
-        const index = Math.max(
-          0,
-          values.indexOf(this.settings.gitContextMaxChars ?? 20_000)
+        this.settings.gitContextMaxChars = stepNumericPreset(
+          this.settings.gitContextMaxChars ?? 20_000,
+          [0, 5000, 10_000, 20_000, 50_000, 100_000],
+          direction
         );
-        this.settings.gitContextMaxChars =
-          values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
       }
       case "toolResultMaxLines": {
-        const values = [0, 500, 1000, 2000, 5000, 10_000];
-        const index = Math.max(
-          0,
-          values.indexOf(this.settings.toolResultMaxLines ?? 2000)
+        this.settings.toolResultMaxLines = stepNumericPreset(
+          this.settings.toolResultMaxLines ?? 2000,
+          [0, 500, 1000, 2000, 5000, 10_000],
+          direction
         );
-        this.settings.toolResultMaxLines =
-          values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
       }
       case "toolResultMaxBytes": {
-        const values = [0, 10 * 1024, 50 * 1024, 100 * 1024, 500 * 1024];
-        const index = Math.max(
-          0,
-          values.indexOf(this.settings.toolResultMaxBytes ?? 50 * 1024)
+        this.settings.toolResultMaxBytes = stepNumericPreset(
+          this.settings.toolResultMaxBytes ?? 50 * 1024,
+          [0, 10 * 1024, 50 * 1024, 100 * 1024, 500 * 1024],
+          direction
         );
-        this.settings.toolResultMaxBytes =
-          values[Math.max(0, Math.min(values.length - 1, index + direction))];
         break;
       }
       default:
