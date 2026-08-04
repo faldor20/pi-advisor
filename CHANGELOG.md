@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0
+
+### Added
+
+- Added discretionary, sequential Advisor file handoff: when globally enabled, the Executor can attach explicitly named tracked working-tree files with `includeTrackedFiles` after the Advisor says it cannot review one. Tracked and untracked attachments remain separate consent paths and share bounded, redacted disclosure limits.
+
 ## 0.2.9
 
 ### Fixed

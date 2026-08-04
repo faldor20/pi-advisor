@@ -11,7 +11,9 @@ Redaction and output limits reduce accidental disclosure; they are not a data-cl
   - `summary` sends changed file names, change status, and line counts. It never sends file contents.
   - `full` additionally sends the patch.
 - Changes are measured against the last commit and cover staged and unstaged work. Untracked files are always listed by name only; `gitContext: full` never sends their contents.
+- `advisorTrackedFileContent` defaults to `false`. When enabled, `includeTrackedFiles` can attach only exact named, repository-relative, tracked regular files from the current working tree. This is intended for a discretionary sequential follow-up when the Advisor explicitly names a missing file; sibling files remain withheld.
 - `advisorUntrackedContent` defaults to `false`. When enabled, `includeUntracked` can attach only exact named, repository-relative, untracked regular files. Files are redacted and capped before egress; sibling files remain withheld.
+- Tracked and untracked attachments share the 8 KiB per-file and 24 KiB aggregate limits. Binary files, symlinks, directories, submodules, traversal paths, and files outside the repository are refused. Current tracked bodies may include unstaged edits.
 - `advisorGitContextMaxChars` defaults to `20000`. Repository context may claim its own cap or half of `contextMaxChars`, whichever is smaller, so it cannot crowd out the conversation.
 - The Executor may pass `gitContext` to `ask_advisor` as `none`, `summary`, or `full`. `advisorGitContext` is the ceiling. A larger request is narrowed to the configured level, and the Advisor is told that a fuller view was withheld.
 - `summary` deliberately excludes diff hunk headers. Git derives those from surrounding file content, so a hunk header can reproduce a line the change never touched, including a credential.

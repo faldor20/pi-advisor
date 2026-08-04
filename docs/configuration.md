@@ -38,6 +38,7 @@ All fields are optional. This example shows the available settings and their nor
   "advisorToolResultMaxBytes": 51200,
 
   "advisorRedactSecrets": false,
+  "advisorTrackedFileContent": false,
   "advisorUntrackedContent": false,
   "advisorOutcomeLogging": false,
   "advisorToolPolicies": {
@@ -65,7 +66,7 @@ All fields are optional. This example shows the available settings and their nor
 
 ## Consultation responses
 
-Normal consultations preserve the provider's final Markdown and never block execution. When the Advisor has no material concern or recommendation, it may begin with the exact first line `Verdict: sound`. Pi renders that response with the static `◆ ADVISOR · SOUND` header for both `ask_advisor` results and `/advisor-manual`.
+Normal consultations preserve the provider's final Markdown and never block execution. If the Advisor explicitly says it cannot review a specifically named file, the Executor may make a sequential follow-up call with `includeTrackedFiles` when global tracked-file consent is enabled; this is discretionary, not an automatic retry. When the Advisor has no material concern or recommendation, it may begin with the exact first line `Verdict: sound`. Pi renders that response with the static `◆ ADVISOR · SOUND` header for both `ask_advisor` results and `/advisor-manual`.
 
 ## Automatic loop gate
 

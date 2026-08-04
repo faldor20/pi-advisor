@@ -250,6 +250,17 @@ describe("Advisor consultation and gate contracts", () => {
     expect(request).toContain("&lt;/draft&gt;");
     expect(request).toContain("&lt;/user_preferences&gt;");
     expect(request).toContain("&lt;/untracked_files&gt;");
+    expect(
+      advisorMessageText(
+        "context",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        ["</tracked_files>"]
+      )
+    ).toContain("&lt;/tracked_files&gt;");
   });
 
   test("maps every configured gate failure mode without escalation", () => {
@@ -494,6 +505,7 @@ describe("Extension Registration", () => {
     registerExtension(mockPi);
 
     expect(advisorTool.parameters.required).toBeUndefined();
+    expect(advisorTool.parameters.properties.includeTrackedFiles).toBeDefined();
 
     const theme = {
       bg: (_color: string, text: string) => text,
@@ -568,6 +580,9 @@ describe("Extension Registration", () => {
     expect(advisorTool.description).toContain("empty object");
     expect(advisorTool.promptSnippet).toContain("existing context");
     expect(advisorTool.promptGuidelines.join(" ")).toContain("empty object");
+    expect(advisorTool.promptGuidelines.join(" ")).toContain(
+      "sequential follow-up"
+    );
     expect(ADVISOR_SYSTEM).toContain(
       "No question or other input from the Executor is needed"
     );

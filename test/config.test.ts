@@ -32,6 +32,7 @@ import {
   advisorToolPoliciesRef,
   advisorToolResultMaxBytesRef,
   advisorToolResultMaxLinesRef,
+  advisorTrackedFileContentRef,
   alwaysOnRef,
   contextMaxCharsRef,
   DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS,
@@ -64,6 +65,7 @@ import {
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
   setAdvisorToolResultMaxLinesRef,
+  setAdvisorTrackedFileContentRef,
   setAlwaysOnRef,
   setContextMaxCharsRef,
   setExecutorEffortRef,
@@ -326,6 +328,7 @@ describe("Config Module", () => {
       DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES
     );
     expect(advisorRedactSecretsRef).toBe(false);
+    expect(advisorTrackedFileContentRef).toBe(false);
     expect(advisorToolPoliciesRef).toEqual({});
     expect(validateConfig({ unexpected: true }, "/tmp/advisor.json")).toBe(
       true
@@ -430,6 +433,7 @@ describe("Config Module", () => {
       setAdvisorToolResultMaxBytesRef(10_240);
       setAdvisorRedactSecretsRef(true);
       setAdvisorToolPoliciesRef({ bash: "summary", deploy: "exclude" });
+      setAdvisorTrackedFileContentRef(true);
       const path = saveConfig({ cwd, isProjectTrusted: () => false } as any);
       expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
         advisorAutoLoopGate: false,
@@ -446,6 +450,7 @@ describe("Config Module", () => {
         advisorToolPolicies: { bash: "summary", deploy: "exclude" },
         advisorToolResultMaxBytes: 10_240,
         advisorToolResultMaxLines: 100,
+        advisorTrackedFileContent: true,
         alwaysOn: true,
         contextMaxChars: Number.MAX_SAFE_INTEGER,
         futureSetting: true,

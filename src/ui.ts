@@ -220,6 +220,7 @@ export interface AdvisorSettings {
   toolPolicies?: Record<string, "full" | "summary" | "exclude">;
   toolResultMaxBytes?: number;
   toolResultMaxLines?: number;
+  trackedFileContent?: boolean;
   untrackedContent?: boolean;
 }
 
@@ -247,6 +248,7 @@ type AdvisorSettingsRow =
   | "gitContextMaxChars"
   | "toolPolicies"
   | "outcomeLogging"
+  | "trackedFileContent"
   | "untrackedContent"
   | "save";
 
@@ -271,6 +273,7 @@ const ADVANCED_ROWS: AdvisorSettingsRow[] = [
   "gitContext",
   "gitContextMaxChars",
   "toolPolicies",
+  "trackedFileContent",
   "untrackedContent",
   "outcomeLogging",
 ];
@@ -540,6 +543,11 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           ? "Exact names configured"
           : "All tools: full",
         "toolPolicies"
+      ),
+      this.row(
+        "Tracked file content",
+        onOff(this.settings.trackedFileContent ?? false),
+        "trackedFileContent"
       ),
       this.row(
         "Untracked file content",
@@ -867,6 +875,11 @@ export class AdvisorSettingsSelector implements Component, Focusable {
         break;
       case "redactSecrets":
         this.settings.redactSecrets = !(this.settings.redactSecrets ?? false);
+        break;
+      case "trackedFileContent":
+        this.settings.trackedFileContent = !(
+          this.settings.trackedFileContent ?? false
+        );
         break;
       case "untrackedContent":
         this.settings.untrackedContent = !(

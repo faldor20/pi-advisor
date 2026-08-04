@@ -119,6 +119,7 @@ export class AdvisorSessionState {
   readonly #reportedAdvice = new Set<string>();
   #draftConsultations = 0;
   #outcomes = 0;
+  #lastAdvice?: string;
 
   resetTask() {
     this.#previousSignature = undefined;
@@ -131,6 +132,7 @@ export class AdvisorSessionState {
     this.#reportedAdvice.clear();
     this.#draftConsultations = 0;
     this.#outcomes = 0;
+    this.#lastAdvice = undefined;
   }
 
   clearBlocked() {
@@ -190,10 +192,30 @@ export class AdvisorSessionState {
     draft = false
   ) {
     this.#issuedAdvice.set(id, { advice, trigger });
+    this.#lastAdvice = advice;
     if (draft) {
       this.#draftConsultations += 1;
     }
   }
+  claimTrackedFiles(paths: string[]) {
+    if (!this.#lastAdvice || paths.length === 0) {
+      return false;
+    }
+    const mentioned = paths.every((path) => {
+      const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const boundary =
+        "(^|[\\s\\\"'`()\\[])" +
+        escaped +
+        "(?=$|[\\s\\\"'`),;:!?\\]]|\\.(?=\\s|$))";
+      return new RegExp(boundary).test(this.#lastAdvice as string);
+    });
+    if (!mentioned) {
+      return false;
+    }
+    this.#lastAdvice = undefined;
+    return true;
+  }
+
   claimAdvice(id: string) {
     if (this.#reportedAdvice.has(id)) {
       return;

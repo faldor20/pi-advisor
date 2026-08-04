@@ -39,6 +39,7 @@ import {
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
   setAdvisorToolResultMaxLinesRef,
+  setAdvisorTrackedFileContentRef,
   setAdvisorUntrackedContentRef,
   setAlwaysOnRef,
   setContextMaxCharsRef,
@@ -559,6 +560,7 @@ export const registerCommands = (
       setAdvisorGitContextRef(settings.gitContext ?? "summary");
       setAdvisorGitContextMaxCharsRef(settings.gitContextMaxChars ?? 20_000);
       setAdvisorToolPoliciesRef(settings.toolPolicies ?? {});
+      setAdvisorTrackedFileContentRef(settings.trackedFileContent ?? false);
       setAdvisorUntrackedContentRef(settings.untrackedContent ?? false);
       setAdvisorOutcomeLoggingRef(settings.outcomeLogging ?? false);
       const path = saveConfig(ctx);

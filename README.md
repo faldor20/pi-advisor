@@ -18,12 +18,12 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 - **Configurable review gates** before plans, after repeated failures, and before declaring completion.
 - **Automatic loop detection** for repeated tool calls, with explicit proceed, revise, or blocked decisions.
 - **Separate model and reasoning controls** for the Executor and Advisor.
-- **Privacy controls** for conversation history, repository context, tool results, secret redaction, and outcome logging.
+- **Privacy controls** for conversation history, repository context, explicit tracked/untracked file handoff, tool results, secret redaction, and outcome logging.
 - **Optional persistent activation, Simple mode, session summaries, and Herdr integration.**
 
 ## Install
 
-Current release: **0.2.9**. Requires Pi 0.80.7 or later. The extension installs no dependencies of its own; Pi supplies its runtime modules.
+Current release: **0.3.0**. Requires Pi 0.80.7 or later. The extension installs no dependencies of its own; Pi supplies its runtime modules.
 
 ```bash
 # npm
@@ -73,13 +73,13 @@ Successful calls return an opaque `adviceId`. If global outcome logging is enabl
 | `/advisor-settings` | Configure behavior, context, gates, privacy, and output limits. |
 | `/advisor-off` | Disable the flow and turn off persistent activation. |
 
-The Executor calls `ask_advisor({})` for a general review. It can pass a targeted `question` or a concise `draft` describing proposed work, validation, and remaining risks. Draft claims give the Advisor review context; they are not verification evidence.
+The Executor calls `ask_advisor({})` for a general review. It can pass a targeted `question` or a concise `draft` describing proposed work, validation, and remaining risks. If the Advisor explicitly says it cannot review a specifically named file, the Executor may make a sequential follow-up call with `includeTrackedFiles` when global consent is enabled and the file is relevant. Draft claims give the Advisor review context; they are not verification evidence.
 
 ## What gets sent to the Advisor
 
 Advisor context can include user messages, tool calls, tool results, and repository information. Secret redaction is off by default, and tools without an explicit disclosure policy default to full context. Review the privacy settings before using the extension with sensitive work.
 
-Repository context is configurable from no access through changed-file summaries to a capped patch. When context is disabled or its budget is zero, the Advisor is told it was withheld rather than shown an apparently clean tree. Untracked file contents require a separate explicit opt-in.
+Repository context is configurable from no access through changed-file summaries to a capped patch. When context is disabled or its budget is zero, the Advisor is told it was withheld rather than shown an apparently clean tree. Explicit tracked and untracked file contents require separate global opt-ins; attachments are capped, redacted when configured, and sent as untrusted data.
 
 ## Documentation
 

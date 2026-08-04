@@ -64,6 +64,7 @@ export let advisorGitContextMaxCharsRef = DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS;
 export let advisorToolPoliciesRef: AdvisorToolPolicies = {};
 export let advisorOutcomeLoggingRef = false;
 export let advisorUntrackedContentRef = false;
+export let advisorTrackedFileContentRef = false;
 
 export const setExecutorRef = (ref: string) => {
   executorRef = ref;
@@ -166,6 +167,9 @@ export const setAdvisorOutcomeLoggingRef = (enabled: boolean) => {
 export const setAdvisorUntrackedContentRef = (enabled: boolean) => {
   advisorUntrackedContentRef = enabled;
 };
+export const setAdvisorTrackedFileContentRef = (enabled: boolean) => {
+  advisorTrackedFileContentRef = enabled;
+};
 
 /**
  * Returns the current live settings state. Use this at UI boundaries instead of
@@ -195,6 +199,7 @@ export const getAdvisorSettings = () => ({
   toolPolicies: { ...advisorToolPoliciesRef },
   toolResultMaxBytes: advisorToolResultMaxBytesRef,
   toolResultMaxLines: advisorToolResultMaxLinesRef,
+  trackedFileContent: advisorTrackedFileContentRef,
   untrackedContent: advisorUntrackedContentRef,
 });
 
@@ -231,6 +236,7 @@ export interface AdvisorConfig {
   advisorToolPolicies?: AdvisorToolPolicies;
   advisorToolResultMaxBytes?: number;
   advisorToolResultMaxLines?: number;
+  advisorTrackedFileContent?: boolean;
   advisorUntrackedContent?: boolean;
   alwaysOn?: boolean;
   contextMaxChars?: number;
@@ -260,6 +266,7 @@ const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
   "alwaysOn",
   "advisorToolResultMaxBytes",
   "advisorToolResultMaxLines",
+  "advisorTrackedFileContent",
   "advisorRedactSecrets",
   "advisorUntrackedContent",
   "advisorOutcomeLogging",
@@ -280,6 +287,7 @@ const BOOLEAN_CONFIG_KEYS = [
   "simpleMode",
   "alwaysOn",
   "advisorHerdrIntegration",
+  "advisorTrackedFileContent",
   "advisorRedactSecrets",
   "advisorUntrackedContent",
   "advisorOutcomeLogging",
@@ -460,6 +468,7 @@ const resetDefaults = () => {
   advisorToolPoliciesRef = {};
   advisorOutcomeLoggingRef = false;
   advisorUntrackedContentRef = false;
+  advisorTrackedFileContentRef = false;
 };
 
 const applyOptionalConfig = <Key extends keyof AdvisorConfig>(
@@ -560,6 +569,11 @@ const applyConfig = (config: AdvisorConfig) => {
     config,
     "advisorUntrackedContent",
     setAdvisorUntrackedContentRef
+  );
+  applyOptionalConfig(
+    config,
+    "advisorTrackedFileContent",
+    setAdvisorTrackedFileContentRef
   );
 };
 
@@ -683,6 +697,7 @@ export const saveConfig = (_ctx: ExtensionContext) => {
     advisorToolPolicies: advisorToolPoliciesRef,
     advisorToolResultMaxBytes: advisorToolResultMaxBytesRef,
     advisorToolResultMaxLines: advisorToolResultMaxLinesRef,
+    advisorTrackedFileContent: advisorTrackedFileContentRef,
     advisorUntrackedContent: advisorUntrackedContentRef,
     alwaysOn: alwaysOnRef,
     gateFailureMode: advisorFailureModeRef,

@@ -58,6 +58,21 @@ describe("AdvisorSessionState", () => {
     expect(state.canConsult(2)).toBe(false);
   });
 
+  test("requires explicitly named paths for tracked file handoff", () => {
+    const session = new AdvisorSessionState();
+    expect(session.claimTrackedFiles(["review.md"])).toBe(false);
+    session.issueAdvice(
+      "id",
+      "I need to inspect review.md",
+      "executor-requested"
+    );
+    expect(session.claimTrackedFiles(["review.md"])).toBe(true);
+    expect(session.claimTrackedFiles(["review.md"])).toBe(false);
+    session.issueAdvice("id-2", "Review review.md.old", "executor-requested");
+    expect(session.claimTrackedFiles(["review.md"])).toBe(false);
+    expect(session.claimTrackedFiles(["other.md"])).toBe(false);
+  });
+
   test("does not generate a summary without Advisor activity", () => {
     const state = new AdvisorSessionState();
     expect(state.summary(undefined)).toBeUndefined();
