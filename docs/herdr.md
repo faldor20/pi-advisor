@@ -6,7 +6,8 @@ pi-advisor can report Advisor activity, blocked-state labels, and Advisor failur
 
 This document was verified against:
 
-- Herdr **0.7.5**, socket protocol **17**, schema version **1**, using the schema bundled with the installed binary.
+- Herdr **0.8.0**, socket protocol **19**, schema version **1**, using the generated schema bundled with the `v0.8.0` source release.
+- Herdr **0.7.5**, socket protocol **17**, schema version **1**, using the schema bundled with the installed binary. The `pane.report_metadata` and `notification.show` request definitions used by pi-advisor are identical in 0.7.5 and 0.8.0.
 - Herdr's stable [Socket API](https://herdr.dev/docs/socket-api/), [CLI reference](https://herdr.dev/docs/cli-reference/), and [Agent automation](https://herdr.dev/docs/agent-automation/) documentation.
 
 The installed binary is the authority for a particular machine. Before changing request fields, inspect its schema:
@@ -104,7 +105,7 @@ Advisor failures can send:
 }
 ```
 
-Herdr 0.7.5 requires a visible title after normalization. It permits `sound` values `none`, `done`, or `request`; notification delivery may still report `disabled`, `rate_limited`, `no_foreground_client`, or `busy`. pi-advisor caps titles at 80 characters and bodies at 240 characters, matching Herdr's documented normalization limits.
+Herdr 0.7.5 and 0.8.0 require a visible title after normalization. They permit `sound` values `none`, `done`, or `request`; notification delivery may still report `disabled`, `rate_limited`, `no_foreground_client`, or `busy`. pi-advisor caps titles at 80 characters and bodies at 240 characters, matching Herdr's documented normalization limits.
 
 ## Metadata ownership and ordering
 

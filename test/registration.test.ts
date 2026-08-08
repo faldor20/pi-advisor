@@ -250,12 +250,13 @@ describe("Herdr Advisor activity", () => {
       "  details\u0000 with   spacing "
     );
     expect(request.method).toBe("notification.show");
-    expect(request.params).toMatchObject({
+    expect(request.params).toEqual({
       body: "details with spacing",
       position: "top-left",
       sound: "request",
       title: "bad title",
     });
+    expect(Object.keys(request).sort()).toEqual(["id", "method", "params"]);
     expect(request.params.title.length).toBeLessThanOrEqual(80);
     expect(request.params.body.length).toBeLessThanOrEqual(240);
   });
@@ -274,10 +275,19 @@ describe("Herdr Advisor activity", () => {
       applies_to_source: "herdr:pi",
       state_labels: { working: "seeking advice" },
     });
+    expect(Object.keys(reports[0].params).sort()).toEqual([
+      "agent",
+      "applies_to_source",
+      "pane_id",
+      "seq",
+      "source",
+      "state_labels",
+    ]);
 
     activity.finish();
     expect(reports).toHaveLength(2);
     expect(reports[1].params).toMatchObject({ clear_state_labels: true });
+    expect(reports[1].params).not.toHaveProperty("state_labels");
   });
 
   test("clears seeking advice on shutdown", () => {
