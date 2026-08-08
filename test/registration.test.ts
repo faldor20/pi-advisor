@@ -41,7 +41,7 @@ import {
   registerAdvisorTool,
   resolveAdvisorRequest,
 } from "../src/tools.js";
-import { AdvisorSettingsSelector } from "../src/ui.js";
+import { AdvisorSettingsSelector, SearchableModelSelector } from "../src/ui.js";
 
 initTheme();
 
@@ -75,6 +75,173 @@ const saveViaKeyboard = (selector: any): number => {
   selector.handleInput("\r");
   return presses;
 };
+
+describe("Searchable model selector", () => {
+  const theme = {
+    bold: (value: string) => value,
+    fg: (_color: string, value: string) => value,
+  } as any;
+  const keybindings = { matches: () => false } as any;
+
+  test("shows the current model first and ticked", () => {
+    const selector = new SearchableModelSelector({
+      allOptions: ["provider/other", "provider/current", "provider/last"],
+      currentOption: "provider/current",
+      keybindings,
+      onCancel: () => undefined,
+      onSelect: () => undefined,
+      theme,
+      title: "Select Model",
+      tui: { requestRender: () => undefined },
+    });
+
+    const screen = selector.render(100).join("\n");
+    expect(screen.indexOf("✓ provider/current")).toBeLessThan(
+      screen.indexOf("provider/other")
+    );
+  });
+
+  test("keeps a configured model selectable when it is absent from the catalog", () => {
+    let selected: string | undefined;
+    const selector = new SearchableModelSelector({
+      allOptions: ["provider/available"],
+      currentOption: "provider/unavailable",
+      keybindings,
+      onCancel: () => undefined,
+      onSelect: (value) => {
+        selected = value;
+      },
+      theme,
+      title: "Select Model",
+      tui: { requestRender: () => undefined },
+    });
+
+    const screen = selector.render(100).join("\n");
+    expect(screen).toContain("→ ✓ provider/unavailable");
+    selector.handleInput("\r");
+    expect(selected).toBe("provider/unavailable");
+  });
+
+  test("keeps the current model when Enter is pressed immediately", () => {
+    let selected: string | undefined;
+    const selector = new SearchableModelSelector({
+      allOptions: ["provider/other", "provider/current"],
+      currentOption: "provider/current",
+      keybindings,
+      onCancel: () => undefined,
+      onSelect: (value) => {
+        selected = value;
+      },
+      theme,
+      title: "Select Model",
+      tui: { requestRender: () => undefined },
+    });
+
+    selector.render(100);
+    selector.handleInput("\r");
+    expect(selected).toBe("provider/current");
+  });
+});
+
+describe("Advisor model command thinking levels", () => {
+  test("shows configured levels first and keeps them on Enter", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({
+        advisor: "provider/advisor",
+        advisorEffort: "high",
+        executor: "provider/executor",
+        executorEffort: "low",
+      })
+    );
+    resetConfigCache();
+    const commands = new Map<string, any>();
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+    } as unknown as ExtensionAPI;
+    const effortChoicesSeen: string[][] = [];
+    const theme = {
+      bold: (value: string) => value,
+      fg: (_color: string, value: string) => value,
+    } as any;
+
+    try {
+      registerCommands(mockPi);
+      await commands.get("advisor-models").handler("", {
+        cwd: agentDir,
+        hasUI: true,
+        isProjectTrusted: () => false,
+        modelRegistry: {
+          getAvailable: () => [
+            { id: "executor", provider: "provider" },
+            { id: "advisor", provider: "provider" },
+          ],
+        },
+        ui: {
+          custom: (factory: any) =>
+            new Promise((resolve) => {
+              const selector = factory(
+                { requestRender: () => undefined },
+                theme,
+                { matches: () => false },
+                resolve
+              );
+              selector.render(100);
+              selector.handleInput("\r");
+            }),
+          notify: () => undefined,
+          select: (_title: string, choices: string[]) => {
+            effortChoicesSeen.push(choices);
+            return Promise.resolve(choices[0]);
+          },
+        },
+      } as any);
+
+      expect(effortChoicesSeen).toEqual([
+        [
+          "✓ low",
+          "Default (Model Default)",
+          "off",
+          "minimal",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ],
+        [
+          "✓ high",
+          "Default (Model Default)",
+          "off",
+          "minimal",
+          "low",
+          "medium",
+          "xhigh",
+          "max",
+        ],
+      ]);
+      const saved = JSON.parse(
+        readFileSync(join(agentDir, "advisor.json"), "utf8")
+      );
+      expect(saved.executorEffort).toBe("low");
+      expect(saved.advisorEffort).toBe("high");
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+});
 
 describe("Herdr Advisor activity", () => {
   test("constructs sanitized request notifications within Herdr limits", () => {

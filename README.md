@@ -41,7 +41,7 @@ Restart or reload Pi after installation.
 ## Quick start
 
 1. Run `/advisor` to enable the flow and register `ask_advisor`.
-2. Run `/advisor-models` to choose the Executor and Advisor models.
+2. Run `/advisor-models` to choose the Executor and Advisor models. Current model and thinking-level selections appear first and ticked, so pressing Enter keeps them.
 3. Run `/advisor-settings` to configure review gates, context, privacy, and limits.
 
 Unknown fields in `advisor.json` are preserved for forward compatibility and reported as non-blocking warnings. Invalid recognized values remain errors, and Advisor commands show the configuration problem without crashing their handlers.
@@ -69,7 +69,7 @@ Successful calls return an opaque `adviceId`. If global outcome logging is enabl
 | --- | --- |
 | `/advisor` | Enable the flow and optionally override the Executor, Advisor, or context limit. |
 | `/advisor-manual [focus]` | Start a parallel consultation without interrupting the current Executor turn. |
-| `/advisor-models` | Choose both models and their reasoning effort. |
+| `/advisor-models` | Choose both models and their reasoning effort; current models are preselected. |
 | `/advisor-settings` | Configure behavior, context, gates, privacy, and output limits. |
 | `/advisor-off` | Disable the flow and turn off persistent activation. |
 

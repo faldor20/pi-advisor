@@ -17,6 +17,7 @@ interface RenderRequester {
 }
 interface SearchableModelSelectorOptions {
   allOptions: string[];
+  currentOption?: string;
   keybindings: KeybindingsManager;
   onCancel: () => void;
   onSelect: (value: string) => void;
@@ -50,6 +51,7 @@ export class SearchableModelSelector implements Component, Focusable {
   private readonly tui: RenderRequester;
   private readonly searchInput: Input;
   private readonly allOptions: string[];
+  private readonly currentOption: string | undefined;
   private filteredOptions: string[];
   private selectedIndex = 0;
   private readonly title: string;
@@ -70,7 +72,13 @@ export class SearchableModelSelector implements Component, Focusable {
   constructor(options: SearchableModelSelectorOptions) {
     this.tui = options.tui;
     this.title = options.title;
-    this.allOptions = options.allOptions;
+    this.currentOption = options.currentOption || undefined;
+    this.allOptions = this.currentOption
+      ? [
+          this.currentOption,
+          ...options.allOptions.filter((item) => item !== this.currentOption),
+        ]
+      : options.allOptions;
     this.theme = options.theme;
     this.keybindings = options.keybindings;
     this.onSelect = options.onSelect;
@@ -116,12 +124,13 @@ export class SearchableModelSelector implements Component, Focusable {
       const endIndex = Math.min(startIndex + maxVisible, total);
       for (let i = startIndex; i < endIndex; i += 1) {
         const item = this.filteredOptions[i];
+        const tick = item === this.currentOption ? "✓ " : "  ";
         if (i === this.selectedIndex) {
           lines.push(
-            `  ${this.theme.fg("accent", "→ ")}${this.theme.fg("accent", item)}`
+            `  ${this.theme.fg("accent", "→ ")}${this.theme.fg("accent", `${tick}${item}`)}`
           );
         } else {
-          lines.push(`    ${this.theme.fg("text", item)}`);
+          lines.push(`    ${this.theme.fg("text", `${tick}${item}`)}`);
         }
       }
       if (total > maxVisible) {

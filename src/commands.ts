@@ -66,8 +66,10 @@ import {
   SearchableModelSelector,
 } from "./ui.js";
 
+const DEFAULT_EFFORT_LEVEL = "Default (Model Default)";
+const SELECTED_PREFIX = "✓ ";
 const EFFORT_LEVELS = [
-  "Default (Model Default)",
+  DEFAULT_EFFORT_LEVEL,
   "off",
   "minimal",
   "low",
@@ -76,6 +78,21 @@ const EFFORT_LEVELS = [
   "xhigh",
   "max",
 ];
+
+const effortChoices = (configured: string | undefined): string[] => {
+  const current = configured ?? DEFAULT_EFFORT_LEVEL;
+  return [
+    `${SELECTED_PREFIX}${current}`,
+    ...EFFORT_LEVELS.filter((level) => level !== current),
+  ];
+};
+
+const selectedEffort = (choice: string): string | undefined => {
+  const effort = choice.startsWith(SELECTED_PREFIX)
+    ? choice.slice(SELECTED_PREFIX.length)
+    : choice;
+  return effort === DEFAULT_EFFORT_LEVEL ? undefined : effort;
+};
 
 const CONTEXT_PRESETS: ContextPreset[] = [
   {
@@ -446,6 +463,7 @@ export const registerCommands = (
         (tui, theme, keybindings, done) =>
           new SearchableModelSelector({
             allOptions: refs,
+            currentOption: executorRef,
             keybindings,
             onCancel: () => done(undefined),
             onSelect: done,
@@ -460,7 +478,7 @@ export const registerCommands = (
 
       const executorEffort = await ctx.ui.select(
         "Select Executor Reasoning/Thinking Level",
-        EFFORT_LEVELS
+        effortChoices(executorEffortRef)
       );
       if (!executorEffort) {
         return;
@@ -470,6 +488,7 @@ export const registerCommands = (
         (tui, theme, keybindings, done) =>
           new SearchableModelSelector({
             allOptions: refs,
+            currentOption: advisorRef,
             keybindings,
             onCancel: () => done(undefined),
             onSelect: done,
@@ -484,7 +503,7 @@ export const registerCommands = (
 
       const advisorEffort = await ctx.ui.select(
         "Select Advisor Reasoning/Thinking Level",
-        EFFORT_LEVELS
+        effortChoices(advisorEffortRef)
       );
       if (!advisorEffort) {
         return;
@@ -492,14 +511,8 @@ export const registerCommands = (
 
       setExecutorRef(executor);
       setAdvisorRef(advisor);
-      setExecutorEffortRef(
-        executorEffort === "Default (Model Default)"
-          ? undefined
-          : executorEffort
-      );
-      setAdvisorEffortRef(
-        advisorEffort === "Default (Model Default)" ? undefined : advisorEffort
-      );
+      setExecutorEffortRef(selectedEffort(executorEffort));
+      setAdvisorEffortRef(selectedEffort(advisorEffort));
 
       const path = saveConfig(ctx);
       ctx.ui.notify(
