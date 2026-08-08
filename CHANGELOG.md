@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Unreleased
 
+## 0.3.1
+
 ### Changed
 
 - Updated the supported runtime baseline to Pi 0.84.1 and verified Herdr reporting against Herdr 0.8.0 while retaining the same request compatibility with Herdr 0.7.5.
