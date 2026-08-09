@@ -35,6 +35,9 @@ git -c diff.stat=false diff --no-ext-diff --check --no-stat
 - MUST preserve public `advisor.json` fields and unknown fields when saving configuration.
 - MUST commit completed, validated increments as often as practical while working so progress is not lost. Do not commit partial or failing work.
 - MUST run all checks above before reporting completion. MUST NOT push unless asked. MUST NOT create or push release tags: CI manages tagging from `package.json`.
+- On a failed release, MUST preserve the requested release identity: fetch and check out the exact existing release tag in a detached worktree or branch, then fix and rerun the release checks there. MUST NOT bump the version, push `main`, create an alternate release, move or delete the existing tag, or publish another npm version as a workaround.
+- MUST treat npm releases as immutable: never attempt to republish, replace, or unpublish a released version. MUST ask for explicit confirmation before any tag, branch, dist-tag, npm, or GitHub Packages mutation while recovering a failed release.
+- MUST document a release incident in `CHANGELOG.md` and this file after containment, including the failed release identity, observed failure, forbidden recovery actions, and the approved next step. Do not hide an incident as an internal test-only change.
 
 ## Common pitfalls
 
