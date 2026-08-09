@@ -4,12 +4,6 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.3.2
-
-### Release status
-
-- Not published because the release validation workflow failed three tests before publication.
-
 ## 0.3.3
 
 ### Added
@@ -20,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Kept Scout history within the Advisor's remaining context budget, including zero-budget behavior, and kept pending Advisor drafts and attachment paths outside Scout's input.
 - Included the current repeated tool invocation in automatic-gate Scout context.
+
+## 0.3.2
+
+### Release status
+
+- Not published because the release validation workflow failed three tests before publication.
 
 ## 0.3.1
 
