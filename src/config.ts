@@ -65,6 +65,7 @@ export let advisorToolPoliciesRef: AdvisorToolPolicies = {};
 export let advisorOutcomeLoggingRef = false;
 export let advisorUntrackedContentRef = false;
 export let advisorTrackedFileContentRef = false;
+export let advisorScoutEnabledRef = false;
 
 export const setExecutorRef = (ref: string) => {
   executorRef = ref;
@@ -170,6 +171,9 @@ export const setAdvisorUntrackedContentRef = (enabled: boolean) => {
 export const setAdvisorTrackedFileContentRef = (enabled: boolean) => {
   advisorTrackedFileContentRef = enabled;
 };
+export const setAdvisorScoutEnabledRef = (enabled: boolean) => {
+  advisorScoutEnabledRef = enabled;
+};
 
 /**
  * Returns the current live settings state. Use this at UI boundaries instead of
@@ -194,6 +198,7 @@ export const getAdvisorSettings = () => ({
   outcomeLogging: advisorOutcomeLoggingRef,
   planGate: advisorPlanGateRef,
   redactSecrets: advisorRedactSecretsRef,
+  scoutEnabled: advisorScoutEnabledRef,
   sessionSummary: advisorSessionSummaryRef,
   simpleMode: simpleModeRef,
   toolPolicies: { ...advisorToolPoliciesRef },
@@ -232,6 +237,7 @@ export interface AdvisorConfig {
   advisorOutcomeLogging?: boolean;
   advisorPlanGate?: boolean;
   advisorRedactSecrets?: boolean;
+  advisorScoutEnabled?: boolean;
   advisorSessionSummary?: boolean;
   advisorToolPolicies?: AdvisorToolPolicies;
   advisorToolResultMaxBytes?: number;
@@ -262,6 +268,7 @@ const CONFIG_KEYS = new Set<keyof AdvisorConfig>([
   "advisorMaxCallsPerSession",
   "advisorPlanGate",
   "advisorSessionSummary",
+  "advisorScoutEnabled",
   "simpleMode",
   "alwaysOn",
   "advisorToolResultMaxBytes",
@@ -284,6 +291,7 @@ const BOOLEAN_CONFIG_KEYS = [
   "advisorBlockOnBlocked",
   "advisorAutoLoopGate",
   "advisorSessionSummary",
+  "advisorScoutEnabled",
   "simpleMode",
   "alwaysOn",
   "advisorHerdrIntegration",
@@ -469,6 +477,7 @@ const resetDefaults = () => {
   advisorOutcomeLoggingRef = false;
   advisorUntrackedContentRef = false;
   advisorTrackedFileContentRef = false;
+  advisorScoutEnabledRef = false;
 };
 
 const applyOptionalConfig = <Key extends keyof AdvisorConfig>(
@@ -535,6 +544,7 @@ const applyConfig = (config: AdvisorConfig) => {
     "advisorSessionSummary",
     setAdvisorSessionSummaryRef
   );
+  applyOptionalConfig(config, "advisorScoutEnabled", setAdvisorScoutEnabledRef);
   applyOptionalConfig(config, "simpleMode", setSimpleModeRef);
   applyOptionalConfig(config, "alwaysOn", setAlwaysOnRef);
   applyOptionalConfig(config, "gateFailureMode", setAdvisorFailureModeRef);
@@ -693,6 +703,7 @@ export const saveConfig = (_ctx: ExtensionContext) => {
     advisorGitContextMaxChars: advisorGitContextMaxCharsRef,
     advisorHerdrIntegration: advisorHerdrIntegrationRef,
     advisorRedactSecrets: advisorRedactSecretsRef,
+    advisorScoutEnabled: advisorScoutEnabledRef,
     advisorSessionSummary: advisorSessionSummaryRef,
     advisorToolPolicies: advisorToolPoliciesRef,
     advisorToolResultMaxBytes: advisorToolResultMaxBytesRef,

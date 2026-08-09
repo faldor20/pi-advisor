@@ -224,6 +224,7 @@ export interface AdvisorSettings {
   outcomeLogging?: boolean;
   planGate: boolean;
   redactSecrets?: boolean;
+  scoutEnabled?: boolean;
   sessionSummary?: boolean;
   simpleMode?: boolean;
   toolPolicies?: Record<string, "full" | "summary" | "exclude">;
@@ -238,6 +239,7 @@ type AdvisorSettingsRow =
   | "alwaysOn"
   | "context"
   | "effort"
+  | "scoutEnabled"
   | "planGate"
   | "failureGate"
   | "completionGate"
@@ -264,6 +266,7 @@ type AdvisorSettingsRow =
 const ADVANCED_ROWS: AdvisorSettingsRow[] = [
   "context",
   "effort",
+  "scoutEnabled",
   "planGate",
   "failureGate",
   "completionGate",
@@ -575,6 +578,11 @@ export class AdvisorSettingsSelector implements Component, Focusable {
     const onOff = (value: boolean) => (value ? "On" : "Off");
     const rows = [
       this.row("Advisor reasoning", this.currentEffort(), "effort"),
+      this.row(
+        "Experimental Advisor Scout",
+        onOff(this.settings.scoutEnabled ?? false),
+        "scoutEnabled"
+      ),
       this.row("Plan gate", onOff(this.settings.planGate), "planGate"),
       this.row("Failure gate", onOff(this.settings.failureGate), "failureGate"),
       this.row(
@@ -822,6 +830,9 @@ export class AdvisorSettingsSelector implements Component, Focusable {
           )
         );
         this.settings.effort = this.options.effortLevels[this.effortIndex];
+        break;
+      case "scoutEnabled":
+        this.settings.scoutEnabled = !(this.settings.scoutEnabled ?? false);
         break;
       case "planGate":
         this.settings.planGate = !this.settings.planGate;

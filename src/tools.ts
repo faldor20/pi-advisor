@@ -1,9 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  type AssistantMessage,
-  type Message,
-  stream,
-} from "@earendil-works/pi-ai/compat";
+import type { Message } from "@earendil-works/pi-ai/compat";
 import {
   type AgentToolResult,
   type ExtensionAPI,
@@ -33,13 +29,14 @@ import {
   advisorPlanGateRef,
   advisorRedactSecretsRef,
   advisorRef,
+  advisorScoutEnabledRef,
   advisorSessionSummaryRef,
   advisorTrackedFileContentRef,
   advisorUntrackedContentRef,
   contextMaxCharsRef,
+  executorRef,
   isSimpleMode,
   loadConfig,
-  splitRef,
 } from "./config.js";
 import {
   recentConversation,
@@ -60,8 +57,15 @@ import {
   herdrAdvisorBlock,
   notifyHerdrAdvisorFailure,
 } from "./herdr.js";
+import { collectTextStream, resolveConfiguredModel } from "./model-stream.js";
 import { ADOPTIONS, appendOutcome, VALIDATIONS } from "./outcomes.js";
 import { readProjectPreferences } from "./preferences.js";
+import {
+  runAdvisorScout,
+  type ScoutLifecycleEvent,
+  type ScoutOutcome,
+} from "./scout.js";
+import { buildScoutManifest } from "./scout-context.js";
 import {
   AdvisorSessionState,
   type ConsultationTrigger,
@@ -301,6 +305,7 @@ export interface AdvisorConsultationResult {
   markdown: string;
   model: string;
   preferenceBytes?: number;
+  scout?: Exclude<ScoutOutcome, { cancelled: true }>;
   thinkingText: string;
   trackedBytes?: number;
   trigger: ConsultationTrigger;
@@ -414,6 +419,51 @@ export const parseAutomaticDecision = (
 const adviceForText = (result: AdvisorGateResult) =>
   `**Decision: ${result.decision}**\n\n${result.markdown}`;
 
+export const curateAdvisorConversation = async (
+  ctx: ExtensionContext,
+  legacyConversation: string,
+  signal?: AbortSignal,
+  onScout?: (event: ScoutLifecycleEvent) => void,
+  enabled = advisorScoutEnabledRef,
+  runScout: typeof runAdvisorScout = runAdvisorScout,
+  currentInvocationId?: string
+): Promise<{
+  conversation: string;
+  scout?: Exclude<ScoutOutcome, { cancelled: true }>;
+}> => {
+  if (!enabled) {
+    return { conversation: legacyConversation };
+  }
+  const built = buildScoutManifest(ctx, { currentInvocationId });
+  if (!built.ok) {
+    const scout: Exclude<ScoutOutcome, { cancelled: true }> = {
+      category: built.reason,
+      message: built.message,
+      metrics: {
+        availableCount: 0,
+        inputBytes: 0,
+        latencyMs: 0,
+        omittedBeforeScout: 0,
+        selectedCount: 0,
+      },
+      model: executorRef,
+      ok: false,
+    };
+    onScout?.({ outcome: scout, type: "fallback" });
+    return { conversation: legacyConversation, scout };
+  }
+  const outcome = await runScout(ctx, built.manifest, signal, onScout);
+  if (!outcome.ok && outcome.cancelled) {
+    throw signal?.reason instanceof Error
+      ? signal.reason
+      : new Error("Advisor operation cancelled during Scout.");
+  }
+  return {
+    conversation: outcome.ok ? outcome.conversation : legacyConversation,
+    scout: outcome,
+  };
+};
+
 const collectAdvisorResponse = async (
   ctx: ExtensionContext,
   systemPrompt: string,
@@ -423,21 +473,12 @@ const collectAdvisorResponse = async (
   gitContext?: GitContextLevel,
   draft?: string,
   includeUntracked?: string[],
-  includeTracked?: string[]
+  includeTracked?: string[],
+  onScout?: (event: ScoutLifecycleEvent) => void,
+  currentInvocationId?: string
 ) => {
   loadConfig(ctx);
-  const [provider, modelId] = splitRef(advisorRef);
-  const model = ctx.modelRegistry.find(provider, modelId);
-  if (!model) {
-    throw new Error(`Advisor model not found: ${advisorRef}`);
-  }
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) {
-    throw new Error((auth as { error: string }).error);
-  }
-  if (!auth.apiKey) {
-    throw new Error(`No API key for ${advisorRef}`);
-  }
+  const resolved = await resolveConfiguredModel(ctx, advisorRef, "Advisor");
 
   // The user setting is the ceiling; the Executor may only narrow it.
   const allowed = advisorGitContextRef;
@@ -464,10 +505,20 @@ const collectAdvisorResponse = async (
   );
   // Repository context spends part of the shared budget, so a large patch
   // cannot silently push the conversation past the model's context window.
-  const conversation = advisorRequestConversation(
+  const legacyConversation = advisorRequestConversation(
     ctx,
     Math.max(0, contextMaxCharsRef - changeText.length)
   );
+  const curated = await curateAdvisorConversation(
+    ctx,
+    legacyConversation,
+    signal,
+    onScout,
+    advisorScoutEnabledRef,
+    runAdvisorScout,
+    currentInvocationId
+  );
+  const { conversation, scout } = curated;
   const preferences = await readProjectPreferences(
     ctx,
     8 * 1024,
@@ -519,41 +570,14 @@ const collectAdvisorResponse = async (
     },
   ];
 
-  let thinkingText = "";
-  let responseText = "";
-  const eventStream = stream(
-    model,
-    { messages, systemPrompt },
-    {
-      apiKey: auth.apiKey,
-      env: auth.env,
-      headers: auth.headers,
-      reasoning: advisorEffortRef as never,
-      signal,
-    }
-  );
-
-  for await (const event of eventStream) {
-    if (event.type === "thinking_delta") {
-      thinkingText += event.delta;
-      onChunk?.(thinkingText, responseText);
-    } else if (event.type === "text_delta") {
-      responseText += event.delta;
-      onChunk?.(thinkingText, responseText);
-    }
-  }
-
-  const response = await eventStream.result();
-  const lastAssistant = [response].find(
-    (m): m is AssistantMessage => m.role === "assistant"
-  );
-  const markdown =
-    lastAssistant?.content
-      .filter(
-        (part): part is { type: "text"; text: string } => part.type === "text"
-      )
-      .map((part) => part.text)
-      .join("\n") || responseText;
+  const streamed = await collectTextStream(resolved, {
+    messages,
+    onChunk,
+    reasoning: advisorEffortRef,
+    signal,
+    systemPrompt,
+  });
+  const markdown = streamed.text;
   if (!markdown.trim()) {
     throw new Error("Advisor returned no advice.");
   }
@@ -562,14 +586,13 @@ const collectAdvisorResponse = async (
     markdown,
     model: advisorRef,
     preferenceBytes: preferences?.bytes,
-    thinkingText,
+    thinkingText: streamed.thinking,
     trackedBytes:
       tracked.reduce((sum, item) => sum + item.bytes, 0) || undefined,
     untrackedBytes:
       untracked.reduce((sum, item) => sum + item.bytes, 0) || undefined,
-    usage: (
-      lastAssistant as (AssistantMessage & { usage?: unknown }) | undefined
-    )?.usage,
+    usage: streamed.usage,
+    ...(scout ? { scout } : {}),
   };
 };
 
@@ -582,7 +605,9 @@ export const consultAdvisor = async (
   gitContext?: GitContextLevel,
   draft?: string,
   includeUntracked?: string[],
-  includeTracked?: string[]
+  includeTracked?: string[],
+  onScout?: (event: ScoutLifecycleEvent) => void,
+  currentInvocationId?: string
 ): Promise<AdvisorConsultationResult> => {
   const result = await collectAdvisorResponse(
     ctx,
@@ -593,7 +618,9 @@ export const consultAdvisor = async (
     gitContext,
     draft,
     includeUntracked,
-    includeTracked
+    includeTracked,
+    onScout,
+    currentInvocationId
   );
   return { ...result, adviceId: randomUUID(), trigger };
 };
@@ -845,18 +872,35 @@ const handleAutomaticGate = async (
   }
 };
 
+interface ScoutToolDetails {
+  availableCount?: number;
+  fallbackReason?: string;
+  latencyMs?: number;
+  model: string;
+  omittedBeforeScout?: number;
+  selectedCount?: number;
+  selectedLabels?: string[];
+  status: "calling" | "streaming" | "curated" | "fallback" | "cancelled";
+  synthesis?: string;
+  text?: string;
+  thinking?: string;
+  usage?: unknown;
+}
 interface AdvisorToolDetails {
   adviceId?: string;
   advisor?: string;
   draftBytes?: number;
   preferenceBytes?: number;
   question?: string;
+  scout?: ScoutToolDetails;
   text?: string;
   thinking?: string;
   trackedBytes?: number;
   untrackedBytes?: number;
 }
 interface AdvisorRenderState {
+  phase?: string;
+  scout?: ScoutToolDetails;
   timerId?: ReturnType<typeof setInterval>;
 }
 interface AdvisorToolContext {
@@ -868,6 +912,131 @@ interface AdvisorToolContext {
 const advisorResultDetails = (result: AgentToolResult<AdvisorToolDetails>) =>
   result.details;
 
+const scoutDetailsFromEvent = (
+  event: ScoutLifecycleEvent,
+  previous?: ScoutToolDetails
+): ScoutToolDetails => {
+  if (event.type === "call") {
+    return { model: event.model, status: "calling" };
+  }
+  if (event.type === "chunk") {
+    return {
+      ...previous,
+      model: event.model,
+      status: "streaming",
+      text: event.text,
+      thinking: event.thinking,
+    };
+  }
+  if (event.type === "cancelled") {
+    return {
+      model: previous ? previous.model : executorRef,
+      status: "cancelled",
+    };
+  }
+  const { outcome } = event;
+  return outcome.ok
+    ? {
+        availableCount: outcome.metrics.availableCount,
+        latencyMs: outcome.metrics.latencyMs,
+        model: outcome.model,
+        omittedBeforeScout: outcome.metrics.omittedBeforeScout,
+        selectedCount: outcome.metrics.selectedCount,
+        selectedLabels: outcome.selectedLabels,
+        status: "curated",
+        synthesis: outcome.selection.synthesis,
+        usage: outcome.metrics.usage,
+      }
+    : {
+        availableCount: outcome.metrics.availableCount,
+        fallbackReason: `${outcome.category}: ${outcome.message}`,
+        latencyMs: outcome.metrics.latencyMs,
+        model: outcome.model,
+        omittedBeforeScout: outcome.metrics.omittedBeforeScout,
+        selectedCount: 0,
+        status: "fallback",
+        usage: outcome.metrics.usage,
+      };
+};
+
+const scoutTitle = (scout: ScoutToolDetails, frame: string) => {
+  if (scout.status === "calling" || scout.status === "streaming") {
+    return `◆ SCOUT ${frame} · CURATING…`;
+  }
+  if (scout.status === "curated") {
+    return "◆ SCOUT · CURATED";
+  }
+  if (scout.status === "cancelled") {
+    return "◆ SCOUT · CANCELLED";
+  }
+  return "◆ SCOUT · FALLBACK";
+};
+
+const renderScoutDetails = (
+  box: Box,
+  scout: ScoutToolDetails,
+  expanded: boolean,
+  theme: Theme
+) => {
+  const active = scout.status === "calling" || scout.status === "streaming";
+  const frame =
+    SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
+  const title = scoutTitle(scout, frame);
+  const lines = [
+    theme.fg(
+      scout.status === "fallback" || scout.status === "cancelled"
+        ? "warning"
+        : "accent",
+      theme.bold(title)
+    ),
+    theme.fg(
+      "dim",
+      `  ${scout.model}${scout.selectedCount === undefined ? "" : ` · ${scout.selectedCount} kept / ${Math.max(0, (scout.availableCount ?? 0) - scout.selectedCount)} omitted`}${scout.latencyMs === undefined ? "" : ` · ${(scout.latencyMs / 1000).toFixed(1)}s`}`
+    ),
+  ];
+  if (scout.fallbackReason) {
+    lines.push(theme.fg("warning", `  ${scout.fallbackReason}`));
+  }
+  if (scout.thinking && active) {
+    lines.push(
+      theme.fg(
+        "thinkingText",
+        `  💭 ${scout.thinking.replace(/\n/g, " ").slice(-200)}`
+      )
+    );
+  }
+  if (expanded && scout.selectedLabels?.length) {
+    lines.push(
+      theme.fg("dim", `  Selected: ${scout.selectedLabels.join("; ")}`)
+    );
+  }
+  if (expanded && scout.synthesis) {
+    lines.push(
+      theme.fg(
+        "dim",
+        `  Scout synthesis (untrusted inference): ${scout.synthesis}`
+      )
+    );
+  }
+  if (expanded && scout.omittedBeforeScout) {
+    lines.push(
+      theme.fg(
+        "dim",
+        `  ${scout.omittedBeforeScout} group(s) omitted before Scout`
+      )
+    );
+  }
+  box.addChild(new Text(lines.join("\n"), 0, 0));
+};
+
+const syncRenderPhase = (context: AdvisorToolContext, phase: string) => {
+  if (context.state.phase !== phase && context.state.timerId) {
+    clearInterval(context.state.timerId);
+    context.state.timerId = undefined;
+  }
+  context.state.phase = phase;
+};
+
 const renderPartialAdvisorResult = (
   box: Box,
   result: AgentToolResult<AdvisorToolDetails>,
@@ -875,12 +1044,25 @@ const renderPartialAdvisorResult = (
   theme: Theme,
   context: AdvisorToolContext
 ) => {
+  const details = advisorResultDetails(result);
+  if (details?.scout) {
+    context.state.scout = details.scout;
+  }
+  const scout = details?.scout ?? context.state.scout;
+  const scoutActive =
+    scout?.status === "calling" || scout?.status === "streaming";
+  syncRenderPhase(context, scoutActive ? "scout" : "advisor");
   if (!context.state.timerId) {
     context.state.timerId = setInterval(() => context.invalidate(), 80);
   }
+  if (scout) {
+    renderScoutDetails(box, scout, expanded, theme);
+  }
+  if (scoutActive || scout?.status === "cancelled") {
+    return;
+  }
   const frame =
     SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
-  const details = advisorResultDetails(result);
   const lines = [
     `${theme.fg("warning", theme.bold(`◆ ADVISOR ${frame}`))} ${theme.fg("dim", "· Working…")}`,
   ];
@@ -911,11 +1093,22 @@ const renderFinalAdvisorResult = (
   theme: Theme,
   context: AdvisorToolContext
 ) => {
+  syncRenderPhase(context, "final");
   if (context.state.timerId) {
     clearInterval(context.state.timerId);
     context.state.timerId = undefined;
   }
   const details = advisorResultDetails(result);
+  if (details?.scout) {
+    context.state.scout = details.scout;
+  }
+  const scout = details?.scout ?? context.state.scout;
+  if (scout) {
+    renderScoutDetails(box, scout, expanded, theme);
+  }
+  if (scout?.status === "cancelled") {
+    return;
+  }
   const advice = details?.text || textFrom(result.content);
   const lines = [renderAdvisorResponseHeader(hasSoundVerdict(advice), theme)];
   if (details?.advisor) {
@@ -1123,6 +1316,7 @@ export const registerAdvisorTool = (
         session.consumeCall();
       }
       herdrAdvisorActivity.start();
+      let scoutDetails: ScoutToolDetails | undefined;
       try {
         const result = await consultAdvisor(
           ctx,
@@ -1134,6 +1328,7 @@ export const registerAdvisorTool = (
               details: {
                 advisor: advisorRef,
                 question: resolveAdvisorRequest(params.question),
+                scout: scoutDetails,
                 text: tx,
                 thinking: t,
               },
@@ -1143,7 +1338,19 @@ export const registerAdvisorTool = (
           params.gitContext === "none" ? "off" : params.gitContext,
           params.draft,
           params.includeUntracked,
-          params.includeTrackedFiles
+          params.includeTrackedFiles,
+          (event) => {
+            scoutDetails = scoutDetailsFromEvent(event, scoutDetails);
+            onUpdate?.({
+              content: [{ text: scoutDetails.text ?? "", type: "text" }],
+              details: {
+                advisor: advisorRef,
+                question: resolveAdvisorRequest(params.question),
+                scout: scoutDetails,
+              },
+            });
+          },
+          _id
         );
         session.issueAdvice(
           result.adviceId,
@@ -1172,6 +1379,7 @@ export const registerAdvisorTool = (
             draftBytes: result.draftBytes,
             preferenceBytes: result.preferenceBytes,
             question: resolveAdvisorRequest(params.question),
+            scout: scoutDetails,
             text: result.markdown,
             thinking: result.thinkingText,
             trackedBytes: result.trackedBytes,

@@ -15,6 +15,7 @@ import registerExtension, {
 } from "../extensions/index.js";
 import { registerCommands } from "../src/commands.js";
 import {
+  advisorScoutEnabledRef,
   contextMaxCharsRef,
   loadConfig,
   resetConfigCache,
@@ -36,6 +37,7 @@ import {
   advisorMessageText,
   advisorRequestConversation,
   advisorSessionState,
+  curateAdvisorConversation,
   gateFailureEffectForMode,
   parseAutomaticDecision,
   registerAdvisorTool,
@@ -47,6 +49,7 @@ initTheme();
 
 const SPINNER_PATTERN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
 const MAX_CALLS_ROW_PATTERN = /Max Advisor calls\/session\s+10/;
+const SCOUT_ON_PATTERN = /Experimental Advisor Scout\s+On/;
 const SIMPLE_MODE_ON = /› Simple mode\s+On/;
 const SIMPLE_MODE_OFF = /› Simple mode\s+Off/;
 const CONTEXT_10K = /Context window\s+10k/;
@@ -917,12 +920,47 @@ describe("Extension Registration", () => {
     expect(saved.contextMaxChars).toBe(10_000);
     const screen = selector.render(80).join("\n");
     expect(screen).toContain("Advisor reasoning");
+    expect(screen).toContain("Experimental Advisor Scout");
     expect(screen).toContain("Custom invocation");
     expect(screen).toContain("Gate failure mode");
     expect(screen).toContain("Herdr integration");
     expect(screen).toContain("Redact common secrets");
     expect(screen).toContain("Tool disclosure policies");
     expect(screen).toContain("▲");
+  });
+
+  test("hides Scout in Simple mode without losing its saved value", () => {
+    let saved: any;
+    const selector = new AdvisorSettingsSelector({
+      effortLevels: ["Default (Model Default)"],
+      initial: {
+        collapseResponses: false,
+        completionGate: true,
+        contextMaxChars: 0,
+        failureGate: true,
+        planGate: true,
+        scoutEnabled: true,
+        simpleMode: true,
+      },
+      onCancel: () => undefined,
+      onSave: (settings) => {
+        saved = settings;
+      },
+      presets: [{ description: "No history", label: "0", value: 0 }],
+      theme: {
+        bold: (text: string) => text,
+        fg: (_color: string, text: string) => text,
+      } as any,
+      tui: { requestRender: () => undefined },
+    });
+    expect(selector.render(100).join("\n")).not.toContain(
+      "Experimental Advisor Scout"
+    );
+    focusSettingsRow(selector, "Simple mode");
+    selector.handleInput("\u001b[C");
+    expect(selector.render(100).join("\n")).toMatch(SCOUT_ON_PATTERN);
+    saveViaKeyboard(selector);
+    expect(saved.scoutEnabled).toBe(true);
   });
 
   test("preserves explicit privacy settings through the selector", () => {
@@ -1049,6 +1087,8 @@ describe("Extension Registration", () => {
           {},
           resolve
         );
+        focusSettingsRow(selector, "Experimental Advisor Scout");
+        selector.handleInput("\u001b[C");
         focusSettingsRow(selector, "Max Advisor calls/session");
         selector.handleInput("\u001b[C");
         saveViaKeyboard(selector);
@@ -1061,7 +1101,9 @@ describe("Extension Registration", () => {
           {},
           resolve
         );
-        expect(selector.render(100).join("\n")).toMatch(MAX_CALLS_ROW_PATTERN);
+        const screen = selector.render(100).join("\n");
+        expect(screen).toMatch(MAX_CALLS_ROW_PATTERN);
+        expect(screen).toMatch(SCOUT_ON_PATTERN);
         selector.handleInput("\u001b");
       });
     const mockPi = {
@@ -1082,7 +1124,11 @@ describe("Extension Registration", () => {
       await commands.get("advisor-settings").handler("", context);
       expect(
         JSON.parse(readFileSync(join(agentDir, "advisor.json"), "utf8"))
-      ).toMatchObject({ advisorMaxCallsPerSession: 10 });
+      ).toMatchObject({
+        advisorMaxCallsPerSession: 10,
+        advisorScoutEnabled: true,
+      });
+      expect(advisorScoutEnabledRef).toBe(true);
       context.ui.custom = reopened;
       await commands.get("advisor-settings").handler("", context);
     } finally {
@@ -1106,6 +1152,142 @@ describe("Extension Registration", () => {
     expect(adviceForDisplay(longAnswer, false)).toContain("Ctrl+O to expand");
     expect(adviceForDisplay(longAnswer, true)).toBe(longAnswer);
     setAdvisorCollapseResponsesRef(false);
+  });
+
+  test("renders Scout phases before Advisor and clears timers at transitions", () => {
+    let advisorTool: any;
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand: () => undefined,
+      registerTool(tool: any) {
+        if (tool.name === "ask_advisor") {
+          advisorTool = tool;
+        }
+      },
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+    const theme = {
+      bg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      fg: (_color: string, text: string) => text,
+    };
+    const context = {
+      invalidate: () => undefined,
+      lastComponent: undefined,
+      state: {} as { phase?: string; timerId?: ReturnType<typeof setInterval> },
+    };
+    const scouting = advisorTool
+      .renderResult(
+        {
+          content: [],
+          details: {
+            scout: { model: "provider/executor", status: "streaming" },
+          },
+        },
+        { expanded: false, isPartial: true },
+        theme,
+        context
+      )
+      .render(120)
+      .join("\n");
+    expect(scouting).toContain("SCOUT");
+    expect(scouting).not.toContain("ADVISOR");
+    const scoutTimer = context.state.timerId;
+    const advising = advisorTool
+      .renderResult(
+        {
+          content: [],
+          details: {
+            scout: {
+              availableCount: 3,
+              latencyMs: 100,
+              model: "provider/executor",
+              selectedCount: 2,
+              status: "curated",
+            },
+          },
+        },
+        { expanded: false, isPartial: true },
+        theme,
+        context
+      )
+      .render(120)
+      .join("\n");
+    expect(advising).toContain("SCOUT · CURATED");
+    expect(advising).toContain("ADVISOR");
+    expect(context.state.timerId).toBeDefined();
+    expect(context.state.timerId).not.toBe(scoutTimer);
+    advisorTool.renderResult(
+      {
+        content: [{ text: "Done.", type: "text" }],
+        details: {
+          scout: {
+            availableCount: 3,
+            model: "provider/executor",
+            selectedCount: 2,
+            selectedLabels: ["current task"],
+            status: "curated",
+            synthesis: "Open decision",
+          },
+        },
+      },
+      { expanded: true, isPartial: false },
+      theme,
+      context
+    );
+    expect(context.state.timerId).toBeUndefined();
+  });
+
+  test("preserves Scout cancellation across the final thrown-tool render", () => {
+    let advisorTool: any;
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand: () => undefined,
+      registerTool(tool: any) {
+        if (tool.name === "ask_advisor") {
+          advisorTool = tool;
+        }
+      },
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+    const theme = {
+      bg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      fg: (_color: string, text: string) => text,
+    };
+    const context = {
+      invalidate: () => undefined,
+      lastComponent: undefined,
+      state: {} as any,
+    };
+    advisorTool.renderResult(
+      {
+        content: [],
+        details: {
+          scout: { model: "provider/executor", status: "cancelled" },
+        },
+      },
+      { expanded: false, isPartial: true },
+      theme,
+      context
+    );
+    const final = advisorTool
+      .renderResult(
+        {
+          content: [{ text: "This operation was aborted", type: "text" }],
+        },
+        { expanded: false, isPartial: false },
+        theme,
+        context
+      )
+      .render(120)
+      .join("\n");
+    expect(final).toContain("SCOUT · CANCELLED");
+    expect(final).not.toContain("ADVISOR RESPONSE");
+    expect(final).not.toContain("This operation was aborted");
+    expect(context.state.timerId).toBeUndefined();
   });
 
   test("animates only while the advisor response is partial", () => {
@@ -1703,6 +1885,115 @@ describe("Command configuration errors", () => {
       resetConfigCache();
       rmSync(agentDir, { force: true, recursive: true });
     }
+  });
+});
+
+describe("Scout Advisor-context integration", () => {
+  const entries = [
+    {
+      id: "u1",
+      message: { content: "current task", role: "user" },
+      parentId: null,
+      timestamp: "2026-01-01T00:00:00Z",
+      type: "message",
+    },
+  ];
+  const ctx = {
+    sessionManager: { buildContextEntries: () => entries },
+  } as any;
+
+  test("disabled mode preserves the exact legacy conversation and makes no Scout call", async () => {
+    let calls = 0;
+    const legacy = "legacy bytes <&> stay exact";
+    const result = await curateAdvisorConversation(
+      ctx,
+      legacy,
+      undefined,
+      undefined,
+      false,
+      (() => {
+        calls += 1;
+        return Promise.reject(new Error("must not run"));
+      }) as any
+    );
+    expect(result).toEqual({ conversation: legacy });
+    expect(calls).toBe(0);
+  });
+
+  test("ordinary Scout failure uses the immutable exact legacy conversation", async () => {
+    const legacy = "legacy bytes <&> stay exact";
+    const result = await curateAdvisorConversation(
+      ctx,
+      legacy,
+      undefined,
+      undefined,
+      true,
+      (async () => ({
+        category: "provider-error",
+        message: "down",
+        metrics: {
+          availableCount: 1,
+          inputBytes: 10,
+          latencyMs: 1,
+          omittedBeforeScout: 0,
+          selectedCount: 0,
+        },
+        model: "provider/executor",
+        ok: false,
+      })) as any
+    );
+    expect(result.conversation).toBe(legacy);
+    expect(result.scout).toMatchObject({
+      category: "provider-error",
+      ok: false,
+    });
+  });
+
+  test("successful Scout context consists of selected verbatim evidence plus labelled synthesis", async () => {
+    const result = await curateAdvisorConversation(
+      ctx,
+      "legacy",
+      undefined,
+      undefined,
+      true,
+      (async (_ctx: unknown, manifest: any) => ({
+        conversation: `${manifest.groups[0].content}\n\n[Scout synthesis — untrusted, non-authoritative inference; not evidence]\nOpen decision`,
+        metrics: {
+          availableCount: 1,
+          inputBytes: 10,
+          latencyMs: 1,
+          omittedBeforeScout: 0,
+          selectedCount: 1,
+        },
+        model: "provider/executor",
+        ok: true,
+        selectedLabels: [manifest.groups[0].label],
+        selection: {
+          selectedIds: [manifest.groups[0].id],
+          synthesis: "Open decision",
+        },
+      })) as any
+    );
+    expect(result.conversation).toContain("User: current task");
+    expect(result.conversation).toContain(
+      "untrusted, non-authoritative inference"
+    );
+    expect(result.conversation).not.toContain("legacy");
+  });
+
+  test("upstream cancellation stops the operation instead of falling back", async () => {
+    const parent = new AbortController();
+    parent.abort(new Error("cancelled by user"));
+    await expect(
+      curateAdvisorConversation(
+        ctx,
+        "legacy",
+        parent.signal,
+        undefined,
+        true,
+        (async () => ({ cancelled: true, ok: false })) as any
+      )
+    ).rejects.toThrow("cancelled by user");
   });
 });
 

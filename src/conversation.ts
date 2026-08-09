@@ -247,7 +247,7 @@ const toolResultEntry = (
   return `[Tool Result for ${toolName}] (${message.isError ? "Error " : ""}output):\n${capped.content}`;
 };
 
-const conversationEntry = (
+export const conversationEntry = (
   entry: unknown,
   toolResultMaxLines: number,
   toolResultMaxBytes: number,

@@ -17,6 +17,7 @@ const INVALID_FAILURE_MODE_PATTERN =
   /block-session.*block-tool.*warn-and-continue/;
 const INVALID_TOOL_POLICIES_PATTERN = /advisorToolPolicies/;
 const INVALID_GIT_CONTEXT_PATTERN = /off.*summary.*full/;
+const INVALID_SCOUT_ENABLED_PATTERN = /advisorScoutEnabled/;
 
 import {
   advisorCollapseResponsesRef,
@@ -28,6 +29,7 @@ import {
   advisorOutcomeLoggingRef,
   advisorRedactSecretsRef,
   advisorRef,
+  advisorScoutEnabledRef,
   advisorSessionSummaryRef,
   advisorToolPoliciesRef,
   advisorToolResultMaxBytesRef,
@@ -61,6 +63,7 @@ import {
   setAdvisorPlanGateRef,
   setAdvisorRedactSecretsRef,
   setAdvisorRef,
+  setAdvisorScoutEnabledRef,
   setAdvisorSessionSummaryRef,
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
@@ -320,7 +323,12 @@ describe("Config Module", () => {
     expect(simpleModeRef).toBe(false);
     expect(alwaysOnRef).toBe(false);
     expect(advisorSessionSummaryRef).toBe(false);
+    expect(advisorScoutEnabledRef).toBe(false);
     expect(advisorHerdrIntegrationRef).toBe(true);
+    expect(validateConfig({ advisorScoutEnabled: true })).toBe(true);
+    expect(() => validateConfig({ advisorScoutEnabled: "yes" })).toThrow(
+      INVALID_SCOUT_ENABLED_PATTERN
+    );
     expect(advisorToolResultMaxLinesRef).toBe(
       DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES
     );
@@ -407,6 +415,43 @@ describe("Config Module", () => {
     }
   });
 
+  test("Scout is global-only and defaults off", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+    mkdirSync(join(cwd, CONFIG_DIR_NAME));
+    writeFileSync(
+      join(cwd, CONFIG_DIR_NAME, "advisor.json"),
+      JSON.stringify({ advisorScoutEnabled: true })
+    );
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({ advisorScoutEnabled: false })
+    );
+    resetConfigCache();
+    try {
+      loadConfig({ cwd, isProjectTrusted: () => true } as any);
+      expect(advisorScoutEnabledRef).toBe(false);
+      writeFileSync(
+        join(agentDir, "advisor.json"),
+        JSON.stringify({ advisorScoutEnabled: true })
+      );
+      resetConfigCache();
+      loadConfig({ cwd, isProjectTrusted: () => true } as any);
+      expect(advisorScoutEnabledRef).toBe(true);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(cwd, { force: true, recursive: true });
+      rmSync(agentDir, { force: true, recursive: true });
+    }
+  });
+
   test("saveConfig preserves unknown fields", () => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
     const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
@@ -425,6 +470,7 @@ describe("Config Module", () => {
       setAdvisorLoopThresholdRef(5);
       setAdvisorMaxCallsPerSessionRef(2);
       setAdvisorSessionSummaryRef(false);
+      setAdvisorScoutEnabledRef(true);
       setSimpleModeRef(true);
       setAlwaysOnRef(true);
       setAdvisorFailureModeRef("warn-and-continue");
@@ -446,6 +492,7 @@ describe("Config Module", () => {
         advisorMaxCallsPerSession: 2,
         advisorPlanGate: false,
         advisorRedactSecrets: true,
+        advisorScoutEnabled: true,
         advisorSessionSummary: false,
         advisorToolPolicies: { bash: "summary", deploy: "exclude" },
         advisorToolResultMaxBytes: 10_240,

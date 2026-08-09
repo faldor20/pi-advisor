@@ -35,6 +35,7 @@ import {
   setAdvisorPlanGateRef,
   setAdvisorRedactSecretsRef,
   setAdvisorRef,
+  setAdvisorScoutEnabledRef,
   setAdvisorSessionSummaryRef,
   setAdvisorToolPoliciesRef,
   setAdvisorToolResultMaxBytesRef,
@@ -563,6 +564,7 @@ export const registerCommands = (
       setAdvisorLoopThresholdRef(settings.loopThreshold ?? 3);
       setAdvisorMaxCallsPerSessionRef(settings.maxCallsPerSession);
       setAdvisorSessionSummaryRef(settings.sessionSummary ?? false);
+      setAdvisorScoutEnabledRef(settings.scoutEnabled ?? false);
       setSimpleModeRef(settings.simpleMode ?? false);
       setAlwaysOnRef(settings.alwaysOn ?? false);
       setAdvisorFailureModeRef(settings.failureMode ?? "block-session");
