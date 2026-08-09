@@ -317,7 +317,10 @@ describe("Scout context", () => {
         user("u1", "current"),
         assistant("a1", [
           {
-            arguments: { draft: "x".repeat(100) },
+            arguments: {
+              draft: "private draft",
+              question: "x".repeat(100),
+            },
             id: "advisor-call",
             name: "ask_advisor",
             type: "toolCall",

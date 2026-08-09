@@ -735,7 +735,10 @@ describe("Extension Registration", () => {
 
   test("cancels a manual consultation before its late response can fan out", async () => {
     const commands = new Map<string, any>();
-    const events = new Map<string, () => void>();
+    const events = new Map<
+      string,
+      (event?: unknown, ctx?: { hasUI?: boolean }) => void
+    >();
     const sent: unknown[] = [];
     let resolveConsult!: (value: {
       markdown: string;
@@ -751,7 +754,7 @@ describe("Extension Registration", () => {
       getActiveTools() {
         return [];
       },
-      on(event: string, handler: () => void) {
+      on(event: string, handler: any) {
         events.set(event, handler);
       },
       registerCommand(name: string, config: any) {
@@ -771,7 +774,7 @@ describe("Extension Registration", () => {
     });
     expect(sent).toEqual([]);
 
-    events.get("session_shutdown")?.();
+    events.get("session_shutdown")?.(undefined, { hasUI: false });
     resolveConsult({ markdown: "Too late.", thinkingText: "" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sent).toEqual([]);
@@ -780,7 +783,10 @@ describe("Extension Registration", () => {
 
   test("suppresses late Scout lifecycle from a shutdown manual consultation", async () => {
     const commands = new Map<string, any>();
-    const events = new Map<string, () => void>();
+    const events = new Map<
+      string,
+      (event?: unknown, ctx?: { hasUI?: boolean }) => void
+    >();
     const entries: string[] = [];
     let lateScout: ((event: any) => void) | undefined;
     const mockPi = {
@@ -788,7 +794,7 @@ describe("Extension Registration", () => {
         entries.push(type);
       },
       getActiveTools: () => [],
-      on(event: string, handler: () => void) {
+      on(event: string, handler: any) {
         events.set(event, handler);
       },
       registerCommand(name: string, config: any) {
@@ -808,7 +814,7 @@ describe("Extension Registration", () => {
       isProjectTrusted: () => false,
     });
     expect(entries).toEqual(["advisor-manual-call"]);
-    events.get("session_shutdown")?.();
+    events.get("session_shutdown")?.(undefined, { hasUI: false });
     lateScout?.({ model: "provider/executor", type: "call" });
     expect(entries).toEqual(["advisor-manual-call"]);
   });
