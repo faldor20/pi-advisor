@@ -34,10 +34,10 @@ git -c diff.stat=false diff --no-ext-diff --check --no-stat
 - MUST document released user-facing behavior in README and CHANGELOG; MUST NOT document internal iterations, implementation reversions, or unreleased defects. Describe the delivered user outcome, not what was temporarily changed during development.
 - MUST preserve public `advisor.json` fields and unknown fields when saving configuration.
 - MUST commit completed, validated increments as often as practical while working so progress is not lost. Do not commit partial or failing work.
-- MUST run all checks above before reporting completion. MUST NOT push unless asked. MUST NOT create or push release tags: CI manages tagging from `package.json`.
-- On a failed release, MUST preserve the requested release identity: fetch and check out the exact existing release tag in a detached worktree or branch, then fix and rerun the release checks there. MUST NOT bump the version, push `main`, create an alternate release, move or delete the existing tag, or publish another npm version as a workaround.
-- MUST treat npm releases as immutable: never attempt to republish, replace, or unpublish a released version. MUST ask for explicit confirmation before any tag, branch, dist-tag, npm, or GitHub Packages mutation while recovering a failed release.
-- MUST document a release incident in `CHANGELOG.md` and this file after containment, including the failed release identity, observed failure, forbidden recovery actions, and the approved next step. Do not hide an incident as an internal test-only change.
+- MUST run all checks above before reporting completion. MUST NOT push unless asked. MUST NOT create or push release tags during normal work: CI manages tagging from `package.json`.
+- When a release workflow fails before npm publication, MUST verify that the package version is absent from npm, remove the failed local and remote Git tag, apply the correction without bumping the version, push the correction, recreate and push the same version tag manually, and manually dispatch the publish workflow. MUST preserve the intended semver release; never substitute an alternate patch version.
+- When npm publication has succeeded, MUST treat that version as immutable: never remove, replace, or republish it. Any later correction requires an explicitly approved new semver release.
+- MUST document a release incident in `CHANGELOG.md` and this file after containment, including the failed release identity, observed failure, and the recovery outcome. Do not hide an incident as an internal test-only change.
 
 ## Common pitfalls
 
