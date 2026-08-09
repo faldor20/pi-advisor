@@ -829,6 +829,7 @@ const handleAutomaticGate = async (
   herdrAdvisorActivity.start();
   let scoutDetails: ScoutToolDetails | undefined;
   const scoutStatusToken = Symbol("automatic-gate-scout");
+  scoutStatus.register(scoutStatusToken);
   let gateCallSent = false;
   const ensureGateCall = () => {
     if (!gateCallSent) {
@@ -1011,13 +1012,20 @@ export const appendScoutLifecycleEntry = (
 
 export class ScoutStatusManager {
   readonly #active = new Set<symbol>();
-  #closed = false;
+  readonly #known = new Set<symbol>();
+  readonly #retired = new Set<symbol>();
+
+  register(token: symbol) {
+    if (!this.#retired.has(token)) {
+      this.#known.add(token);
+    }
+  }
 
   update(ctx: ExtensionContext, token: symbol, event: ScoutLifecycleEvent) {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: clear() closes the manager asynchronously during session shutdown.
-    if (this.#closed || !ctx.hasUI) {
+    if (this.#retired.has(token) || !ctx.hasUI) {
       return;
     }
+    this.#known.add(token);
     if (event.type === "call" || event.type === "chunk") {
       this.#active.add(token);
       ctx.ui.setStatus("advisor-scout", "Scout curating…");
@@ -1028,8 +1036,9 @@ export class ScoutStatusManager {
 
   release(ctx: ExtensionContext, token: symbol) {
     this.#active.delete(token);
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: clear() closes the manager asynchronously during session shutdown.
-    if (this.#closed || !ctx.hasUI) {
+    this.#known.delete(token);
+    this.#retired.add(token);
+    if (!ctx.hasUI) {
       return;
     }
     ctx.ui.setStatus(
@@ -1039,7 +1048,10 @@ export class ScoutStatusManager {
   }
 
   clear(ctx: ExtensionContext) {
-    this.#closed = true;
+    for (const token of this.#known) {
+      this.#retired.add(token);
+    }
+    this.#known.clear();
     this.#active.clear();
     if (ctx.hasUI) {
       ctx.ui.setStatus("advisor-scout", undefined);

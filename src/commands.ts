@@ -472,6 +472,7 @@ export const registerCommands = (
       manualConsultations.clear();
       const controller = new AbortController();
       const scoutStatusToken = Symbol("manual-scout");
+      scoutStatus.register(scoutStatusToken);
       manualConsultations.set(controller, scoutStatusToken);
       pi.appendEntry?.("advisor-manual-call", { question });
       startManualConsultation(ctx, question, controller, scoutStatusToken);
