@@ -122,6 +122,51 @@ const createGroup = (
   required,
 });
 
+const pendingAdvisorArguments = (value: unknown): RecordValue => {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const allowed: RecordValue = {};
+  for (const key of ["gitContext", "question"]) {
+    if (key in value) {
+      allowed[key] = value[key];
+    }
+  }
+  return allowed;
+};
+
+const pendingInvocationDisclosure = (
+  entry: RecordValue,
+  invocationId: string,
+  toolResultMaxLines: number,
+  toolResultMaxBytes: number,
+  policies: AdvisorToolPolicies,
+  redact: boolean,
+  disclosed: string
+) => {
+  if (!isRecord(entry.message)) {
+    return disclosed;
+  }
+  const content = contentParts(entry.message.content).map((part) => {
+    if (
+      !isRecord(part) ||
+      part.type !== "toolCall" ||
+      toolCallId(part) !== invocationId ||
+      part.name !== "ask_advisor"
+    ) {
+      return part;
+    }
+    return { ...part, arguments: pendingAdvisorArguments(part.arguments) };
+  });
+  return conversationEntry(
+    { ...entry, message: { ...entry.message, content } },
+    toolResultMaxLines,
+    toolResultMaxBytes,
+    policies,
+    redact
+  );
+};
+
 export interface BuildScoutManifestOptions {
   currentInvocationId?: string;
   maxBytes?: number;
@@ -343,12 +388,21 @@ export const buildScoutManifest = (
         );
         continue;
       }
+      const pendingDisclosed = pendingInvocationDisclosure(
+        entry,
+        currentInvocationId,
+        toolResultMaxLines,
+        toolResultMaxBytes,
+        policies,
+        redact,
+        disclosed
+      );
       groups.push(
         createGroup(
           index,
           [entryId, ...resultEntryIds],
           "pending-invocation",
-          [disclosed, ...resultParts].join("\n\n"),
+          [pendingDisclosed ?? disclosed, ...resultParts].join("\n\n"),
           true
         )
       );
@@ -369,6 +423,18 @@ export const buildScoutManifest = (
   const availableBytes =
     groups.reduce((sum, group) => sum + groupWireBytes(group), 0) +
     protocolOmittedBytes;
+  if (maxBytes <= 0) {
+    return {
+      manifest: {
+        availableBytes: 0,
+        availableCount: 0,
+        groups: [],
+        omittedBytes: 0,
+        omittedCount: 0,
+      },
+      ok: true,
+    };
+  }
   const required = groups.filter((group) => group.required);
   if (
     required.some((group) => group.bytes > maxGroupBytes) ||
@@ -416,18 +482,45 @@ export const buildScoutManifest = (
   };
 };
 
+const prefixWithinCharBudget = (value: string, maxChars: number) => {
+  let result = "";
+  for (const character of value) {
+    if (result.length + character.length > maxChars) {
+      break;
+    }
+    result += character;
+  }
+  return result;
+};
+
 export const reconstructScoutConversation = (
   manifest: ScoutManifest,
   selectedIds: string[],
-  synthesis?: string
+  synthesis?: string,
+  maxChars = Number.MAX_SAFE_INTEGER
 ): string => {
   const selected = new Set(selectedIds);
   const evidence = manifest.groups
     .filter((group) => group.required || selected.has(group.id))
     .sort((left, right) => left.originalIndex - right.originalIndex)
     .map((group) => group.content);
+  const evidenceText = evidence.join("\n\n");
+  if (maxChars <= 0) {
+    return "";
+  }
+  if (evidenceText.length >= maxChars) {
+    return prefixWithinCharBudget(evidenceText, maxChars);
+  }
   const inference = synthesis?.trim()
     ? `[Scout synthesis — untrusted, non-authoritative inference; not evidence]\n${synthesis.trim()}`
     : undefined;
-  return [...evidence, inference].filter(Boolean).join("\n\n");
+  if (!inference) {
+    return evidenceText;
+  }
+  const separator = evidenceText ? "\n\n" : "";
+  const remaining = maxChars - evidenceText.length - separator.length;
+  if (remaining <= 0) {
+    return evidenceText;
+  }
+  return `${evidenceText}${separator}${prefixWithinCharBudget(inference, remaining)}`;
 };

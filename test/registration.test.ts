@@ -1511,6 +1511,7 @@ describe("Extension Registration", () => {
     resetConfigCache();
     const events = new Map<string, any>();
     const timeline: string[] = [];
+    const invocationIds: unknown[] = [];
     const mockPi = {
       appendEntry(type: string) {
         timeline.push(`entry:${type}`);
@@ -1534,8 +1535,10 @@ describe("Extension Registration", () => {
         _trigger: string,
         _signal: AbortSignal | undefined,
         _onChunk: unknown,
-        onScout: any
+        onScout: any,
+        currentInvocationId: unknown
       ) => {
+        invocationIds.push(currentInvocationId);
         await Promise.resolve();
         onScout?.({ model: "provider/executor", type: "call" });
         onScout?.({
@@ -1585,6 +1588,7 @@ describe("Extension Registration", () => {
         "message:advisor-loop-result",
       ]);
       expect(session.blocked).toBe(false);
+      expect(invocationIds).toEqual(["two"]);
     } finally {
       if (previousAgentDir === undefined) {
         delete process.env.PI_CODING_AGENT_DIR;
@@ -2304,6 +2308,60 @@ describe("Scout Advisor-context integration", () => {
       category: "provider-error",
       ok: false,
     });
+  });
+
+  test("zero remaining budget skips Scout and withholds legacy context", async () => {
+    let calls = 0;
+    const result = await curateAdvisorConversation(
+      ctx,
+      "legacy history must be withheld",
+      undefined,
+      undefined,
+      true,
+      (() => {
+        calls += 1;
+        throw new Error("Scout must not run without history budget");
+      }) as any,
+      undefined,
+      0
+    );
+    expect(calls).toBe(0);
+    expect(result.conversation).toBe("");
+  });
+
+  test("small remaining budget bounds the full curated conversation", async () => {
+    let selectedIds: string[] = [];
+    const result = await curateAdvisorConversation(
+      ctx,
+      "legacy",
+      undefined,
+      undefined,
+      true,
+      ((_ctx: unknown, manifest: any) => {
+        selectedIds = manifest.groups.map((group: any) => group.id);
+        return {
+          conversation: "unbounded mock output",
+          metrics: {
+            availableCount: manifest.availableCount,
+            inputBytes: manifest.availableBytes,
+            latencyMs: 1,
+            omittedBeforeScout: manifest.omittedCount,
+            selectedCount: selectedIds.length,
+          },
+          model: "provider/executor",
+          ok: true,
+          selectedLabels: manifest.groups.map((group: any) => group.label),
+          selection: {
+            selectedIds,
+            synthesis: "x".repeat(1000),
+          },
+        };
+      }) as any,
+      undefined,
+      200
+    );
+    expect(result.conversation.length).toBeLessThanOrEqual(200);
+    expect(result.conversation).toContain("User: current task");
   });
 
   test("successful Scout context consists of selected verbatim evidence plus labelled synthesis", async () => {

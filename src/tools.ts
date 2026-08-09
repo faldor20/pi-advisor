@@ -65,7 +65,10 @@ import {
   type ScoutLifecycleEvent,
   type ScoutOutcome,
 } from "./scout.js";
-import { buildScoutManifest } from "./scout-context.js";
+import {
+  buildScoutManifest,
+  reconstructScoutConversation,
+} from "./scout-context.js";
 import {
   AdvisorSessionState,
   type ConsultationTrigger,
@@ -426,7 +429,8 @@ export const curateAdvisorConversation = async (
   onScout?: (event: ScoutLifecycleEvent) => void,
   enabled = advisorScoutEnabledRef,
   runScout: typeof runAdvisorScout = runAdvisorScout,
-  currentInvocationId?: string
+  currentInvocationId?: string,
+  maxChars?: number
 ): Promise<{
   conversation: string;
   scout?: Exclude<ScoutOutcome, { cancelled: true }>;
@@ -434,7 +438,13 @@ export const curateAdvisorConversation = async (
   if (!enabled) {
     return { conversation: legacyConversation };
   }
-  const built = buildScoutManifest(ctx, { currentInvocationId });
+  if (maxChars !== undefined && maxChars <= 0) {
+    return { conversation: "" };
+  }
+  const built = buildScoutManifest(ctx, {
+    currentInvocationId,
+    maxBytes: maxChars,
+  });
   if (!built.ok) {
     const scout: Exclude<ScoutOutcome, { cancelled: true }> = {
       category: built.reason,
@@ -458,10 +468,19 @@ export const curateAdvisorConversation = async (
       ? signal.reason
       : new Error("Advisor operation cancelled during Scout.");
   }
-  return {
-    conversation: outcome.ok ? outcome.conversation : legacyConversation,
-    scout: outcome,
-  };
+  let conversation = legacyConversation;
+  if (outcome.ok) {
+    conversation =
+      maxChars === undefined
+        ? outcome.conversation
+        : reconstructScoutConversation(
+            built.manifest,
+            outcome.selection.selectedIds,
+            outcome.selection.synthesis,
+            maxChars
+          );
+  }
+  return { conversation, scout: outcome };
 };
 
 const collectAdvisorResponse = async (
@@ -505,9 +524,13 @@ const collectAdvisorResponse = async (
   );
   // Repository context spends part of the shared budget, so a large patch
   // cannot silently push the conversation past the model's context window.
+  const conversationBudget = Math.max(
+    0,
+    contextMaxCharsRef - changeText.length
+  );
   const legacyConversation = advisorRequestConversation(
     ctx,
-    Math.max(0, contextMaxCharsRef - changeText.length)
+    conversationBudget
   );
   const curated = await curateAdvisorConversation(
     ctx,
@@ -516,7 +539,8 @@ const collectAdvisorResponse = async (
     onScout,
     advisorScoutEnabledRef,
     runAdvisorScout,
-    currentInvocationId
+    currentInvocationId,
+    conversationBudget
   );
   const { conversation, scout } = curated;
   const preferences = await readProjectPreferences(
@@ -631,7 +655,8 @@ export const runAdvisorGate = async (
   trigger: GateTrigger = "repeated-tool-call",
   signal?: AbortSignal,
   onChunk?: (thinking: string, text: string) => void,
-  onScout?: (event: ScoutLifecycleEvent) => void
+  onScout?: (event: ScoutLifecycleEvent) => void,
+  currentInvocationId?: string
 ): Promise<AdvisorGateOutcome> => {
   try {
     const result = await collectAdvisorResponse(
@@ -644,7 +669,8 @@ export const runAdvisorGate = async (
       undefined,
       undefined,
       undefined,
-      onScout
+      onScout,
+      currentInvocationId
     );
     const parsed = parseAutomaticDecision(result.markdown);
     if (!parsed.ok) {
@@ -853,7 +879,8 @@ const handleAutomaticGate = async (
         if (scoutEvent.type === "success" || scoutEvent.type === "fallback") {
           ensureGateCall();
         }
-      }
+      },
+      event.toolCallId
     );
     ensureGateCall();
     if (!result.ok) {

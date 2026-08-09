@@ -10,6 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Added **EXPERIMENTAL** Advisor Scout, an opt-in conversation curator that uses the configured Executor model before every Advisor invocation. It keeps selected evidence verbatim, labels its synthesis as untrusted inference, reports separate usage and latency, and falls back to the original context without changing Advisor or gate safety behavior. The experiment adapts the context-boundary idea from the [FastContext paper](https://arxiv.org/html/2606.14066v1); it is not the paper's repository explorer and does not claim its reported effect size.
 
+### Fixed
+
+- Kept Scout history within the Advisor's remaining context budget, including zero-budget behavior, and kept pending Advisor drafts and attachment paths outside Scout's input.
+- Included the current repeated tool invocation in automatic-gate Scout context.
+
 ## 0.3.1
 
 ### Changed

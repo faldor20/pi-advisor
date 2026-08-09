@@ -189,6 +189,71 @@ describe("Scout context", () => {
     });
   });
 
+  test("retains the current automatic-gate tool invocation", () => {
+    const built = buildScoutManifest(
+      context([
+        assistant("a1", [
+          {
+            arguments: { command: "pwd" },
+            id: "bash-call",
+            name: "bash",
+            type: "toolCall",
+          },
+        ]),
+      ]),
+      { currentInvocationId: "bash-call" }
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) {
+      return;
+    }
+    expect(built.manifest.groups).toMatchObject([
+      { content: expect.stringContaining('"command":"pwd"') },
+    ]);
+    expect(built.manifest.groups[0].kind).toBe("pending-invocation");
+  });
+
+  test("keeps current Advisor arguments within the Scout privacy allowlist", () => {
+    const built = buildScoutManifest(
+      context([
+        user("u1", "review this"),
+        assistant("a1", [
+          {
+            arguments: {
+              draft: "private draft",
+              gitContext: "summary",
+              includeTrackedFiles: ["src/private.ts"],
+              includeUntracked: ["scratch.txt"],
+              question: "Should this ship?",
+            },
+            id: "advisor-call",
+            name: "ask_advisor",
+            type: "toolCall",
+          },
+        ]),
+      ]),
+      { currentInvocationId: "advisor-call" }
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) {
+      return;
+    }
+    const pending = built.manifest.groups.at(-1);
+    expect(pending?.kind).toBe("pending-invocation");
+    expect(pending?.content).toContain('"gitContext":"summary"');
+    expect(pending?.content).toContain('"question":"Should this ship?"');
+    expect(pending?.content).not.toContain("private draft");
+    expect(pending?.content).not.toContain("src/private.ts");
+    expect(pending?.content).not.toContain("scratch.txt");
+  });
+
+  test("zero Scout budget produces no history groups", () => {
+    const built = buildScoutManifest(context([user("u1", "current request")]), {
+      maxBytes: 0,
+    });
+    expect(built).toMatchObject({ manifest: { groups: [] }, ok: true });
+  });
+
   test("marks the latest user request required and reconstructs original order", () => {
     const built = buildScoutManifest(
       context([
@@ -215,6 +280,24 @@ describe("Scout context", () => {
       conversation.indexOf("current request")
     );
     expect(conversation).toContain("untrusted, non-authoritative inference");
+  });
+
+  test("caps reconstructed Scout context to the remaining character budget", () => {
+    const built = buildScoutManifest(context([user("u1", "current request")]), {
+      maxBytes: 10_000,
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) {
+      return;
+    }
+    const conversation = reconstructScoutConversation(
+      built.manifest,
+      built.manifest.groups.map((group) => group.id),
+      "synthesis that must be bounded",
+      13
+    );
+    expect(conversation.length).toBe(13);
+    expect(conversation).toContain("User: current");
   });
 
   test("fails open when required request or atomic invocation exceeds limits", () => {
