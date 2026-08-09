@@ -42,6 +42,7 @@ import {
   parseAutomaticDecision,
   registerAdvisorTool,
   resolveAdvisorRequest,
+  ScoutStatusManager,
 } from "../src/tools.js";
 import { AdvisorSettingsSelector, SearchableModelSelector } from "../src/ui.js";
 
@@ -372,6 +373,94 @@ describe("Herdr Advisor activity", () => {
   });
 });
 
+describe("Scout status ownership", () => {
+  const context = (statuses: Array<string | undefined>) =>
+    ({
+      hasUI: true,
+      ui: {
+        setStatus: (_key: string, value: string | undefined) =>
+          statuses.push(value),
+      },
+    }) as any;
+
+  test("keeps a newer active status when an older invocation releases", () => {
+    const statuses: Array<string | undefined> = [];
+    const manager = new ScoutStatusManager();
+    const ctx = context(statuses);
+    const older = Symbol("older");
+    const newer = Symbol("newer");
+    manager.update(ctx, older, { model: "executor", type: "call" });
+    manager.update(ctx, newer, { model: "executor", type: "call" });
+    manager.release(ctx, older);
+    expect(statuses.at(-1)).toBe("Scout curating…");
+    manager.release(ctx, newer);
+    expect(statuses.at(-1)).toBeUndefined();
+  });
+
+  test("shutdown clear prevents late callbacks from reacquiring status", () => {
+    const statuses: Array<string | undefined> = [];
+    const manager = new ScoutStatusManager();
+    const ctx = context(statuses);
+    const token = Symbol("old-session");
+    manager.update(ctx, token, { model: "executor", type: "call" });
+    manager.clear(ctx);
+    manager.update(ctx, token, {
+      model: "executor",
+      text: "",
+      thinking: "",
+      type: "chunk",
+    });
+    expect(statuses).toEqual(["Scout curating…", undefined]);
+  });
+
+  test("success, fallback, and cancellation release their status", () => {
+    for (const event of [
+      {
+        outcome: {
+          conversation: "selected",
+          metrics: {
+            availableCount: 1,
+            inputBytes: 1,
+            latencyMs: 1,
+            omittedBeforeScout: 0,
+            selectedCount: 1,
+          },
+          model: "executor",
+          ok: true,
+          selectedLabels: [],
+          selection: { selectedIds: [], synthesis: "" },
+        },
+        type: "success",
+      },
+      {
+        outcome: {
+          category: "timeout",
+          message: "timeout",
+          metrics: {
+            availableCount: 1,
+            inputBytes: 1,
+            latencyMs: 1,
+            omittedBeforeScout: 0,
+            selectedCount: 0,
+          },
+          model: "executor",
+          ok: false,
+        },
+        type: "fallback",
+      },
+      { type: "cancelled" },
+    ] as const) {
+      const statuses: Array<string | undefined> = [];
+      const manager = new ScoutStatusManager();
+      const ctx = context(statuses);
+      const token = Symbol("invocation");
+      manager.update(ctx, token, { model: "executor", type: "call" });
+      manager.update(ctx, token, event as any);
+      expect(statuses.at(-1)).toBeUndefined();
+    }
+  });
+});
+
 describe("Advisor consultation and gate contracts", () => {
   test("keeps automatic decision instructions separate from manual Markdown", () => {
     expect(ADVISOR_SYSTEM).toContain("human-readable Markdown");
@@ -582,6 +671,68 @@ describe("Extension Registration", () => {
     ]);
   });
 
+  test("renders one terminal manual Scout entry before the Advisor response", async () => {
+    const commands = new Map<string, any>();
+    const entries: Array<{ type: string; data: any }> = [];
+    const timeline: string[] = [];
+    const mockPi = {
+      appendEntry(type: string, data: unknown) {
+        entries.push({ data, type });
+        timeline.push(type);
+      },
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      sendMessage(message: any) {
+        timeline.push(message.customType);
+      },
+    } as unknown as ExtensionAPI;
+    registerCommands(mockPi, {
+      consult: (_ctx, _question, _signal, _onChunk, onScout) => {
+        onScout?.({ model: "provider/executor", type: "call" });
+        onScout?.({
+          outcome: {
+            conversation: "selected evidence",
+            metrics: {
+              availableCount: 3,
+              inputBytes: 100,
+              latencyMs: 12,
+              omittedBeforeScout: 1,
+              selectedCount: 2,
+            },
+            model: "provider/executor",
+            ok: true,
+            selectedLabels: ["current request"],
+            selection: {
+              selectedIds: ["g_required"],
+              synthesis: "Open decision",
+            },
+          },
+          type: "success",
+        });
+        return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
+      },
+    });
+    await commands.get("advisor-manual").handler("Check", {
+      cwd: tmpdir(),
+      hasUI: false,
+      isProjectTrusted: () => false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(timeline).toEqual([
+      "advisor-manual-call",
+      "advisor-scout-result",
+      "advisor-manual-result",
+    ]);
+    expect(entries[1].data).toMatchObject({
+      model: "provider/executor",
+      selectedCount: 2,
+      status: "curated",
+    });
+  });
+
   test("cancels a manual consultation before its late response can fan out", async () => {
     const commands = new Map<string, any>();
     const events = new Map<string, () => void>();
@@ -625,6 +776,77 @@ describe("Extension Registration", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sent).toEqual([]);
     expect(advisorSessionState.summary(undefined)).toBeUndefined();
+  });
+
+  test("suppresses late Scout lifecycle from a shutdown manual consultation", async () => {
+    const commands = new Map<string, any>();
+    const events = new Map<string, () => void>();
+    const entries: string[] = [];
+    let lateScout: ((event: any) => void) | undefined;
+    const mockPi = {
+      appendEntry(type: string) {
+        entries.push(type);
+      },
+      getActiveTools: () => [],
+      on(event: string, handler: () => void) {
+        events.set(event, handler);
+      },
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      sendMessage: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerCommands(mockPi, {
+      consult: (_ctx, _question, _signal, _onChunk, onScout) => {
+        lateScout = onScout;
+        return new Promise(() => undefined);
+      },
+    });
+    await commands.get("advisor-manual").handler("", {
+      cwd: tmpdir(),
+      hasUI: false,
+      isProjectTrusted: () => false,
+    });
+    expect(entries).toEqual(["advisor-manual-call"]);
+    events.get("session_shutdown")?.();
+    lateScout?.({ model: "provider/executor", type: "call" });
+    expect(entries).toEqual(["advisor-manual-call"]);
+  });
+
+  test("clears Scout status on shutdown when consultation never settles", async () => {
+    const commands = new Map<string, any>();
+    const events = new Map<string, any>();
+    const statuses: Array<string | undefined> = [];
+    const mockPi = {
+      appendEntry: () => undefined,
+      getActiveTools: () => [],
+      on(event: string, handler: any) {
+        events.set(event, handler);
+      },
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      sendMessage: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerCommands(mockPi, {
+      consult: (_ctx, _question, _signal, _onChunk, onScout) => {
+        onScout?.({ model: "executor", type: "call" });
+        return new Promise(() => undefined);
+      },
+    });
+    const ctx = {
+      cwd: tmpdir(),
+      hasUI: true,
+      isProjectTrusted: () => false,
+      ui: {
+        setStatus: (_key: string, value: string | undefined) =>
+          statuses.push(value),
+      },
+    } as any;
+    await commands.get("advisor-manual").handler("", ctx);
+    expect(statuses.at(-1)).toBe("Scout curating…");
+    events.get("session_shutdown")?.({ reason: "reload" }, ctx);
+    expect(statuses.at(-1)).toBeUndefined();
   });
 
   test("replaces an in-flight manual consultation with a newer request", async () => {
@@ -1154,6 +1376,45 @@ describe("Extension Registration", () => {
     setAdvisorCollapseResponsesRef(false);
   });
 
+  test("renders the shared expanded Scout fallback entry", () => {
+    const renderers = new Map<string, any>();
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand: () => undefined,
+      registerEntryRenderer(type: string, renderer: any) {
+        renderers.set(type, renderer);
+      },
+      registerTool: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerExtension(mockPi);
+    const theme = {
+      bg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      fg: (_color: string, text: string) => text,
+    };
+    const fallback = renderers
+      .get("advisor-scout-result")(
+        {
+          data: {
+            availableCount: 4,
+            fallbackReason: "timeout: Scout timed out",
+            model: "provider/executor",
+            omittedBeforeScout: 2,
+            selectedCount: 0,
+            status: "fallback",
+          },
+        },
+        { expanded: true },
+        theme
+      )
+      .render(120)
+      .join("\n");
+    expect(fallback).toContain("SCOUT · FALLBACK");
+    expect(fallback).toContain("timeout: Scout timed out");
+    expect(fallback).toContain("2 group(s) omitted before Scout");
+  });
+
   test("renders Scout phases before Advisor and clears timers at transitions", () => {
     let advisorTool: any;
     const mockPi = {
@@ -1237,6 +1498,102 @@ describe("Extension Registration", () => {
       context
     );
     expect(context.state.timerId).toBeUndefined();
+  });
+
+  test("renders automatic-gate Scout fallback before the unaffected Advisor gate", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    writeFileSync(
+      join(agentDir, "advisor.json"),
+      JSON.stringify({ advisorLoopThreshold: 2, advisorScoutEnabled: true })
+    );
+    resetConfigCache();
+    const events = new Map<string, any>();
+    const timeline: string[] = [];
+    const mockPi = {
+      appendEntry(type: string) {
+        timeline.push(`entry:${type}`);
+      },
+      getActiveTools: () => ["ask_advisor"],
+      on(name: string, handler: any) {
+        events.set(name, handler);
+      },
+      registerEntryRenderer: () => undefined,
+      registerMessageRenderer: () => undefined,
+      registerTool: () => undefined,
+      sendMessage(message: any) {
+        timeline.push(`message:${message.customType}`);
+      },
+    } as unknown as ExtensionAPI;
+    const session = new AdvisorSessionState();
+    registerAdvisorTool(mockPi, session, {
+      runGate: (async (
+        _ctx: unknown,
+        _question: string,
+        _trigger: string,
+        _signal: AbortSignal | undefined,
+        _onChunk: unknown,
+        onScout: any
+      ) => {
+        await Promise.resolve();
+        onScout?.({ model: "provider/executor", type: "call" });
+        onScout?.({
+          outcome: {
+            category: "timeout",
+            message: "Scout timed out after 30000 ms.",
+            metrics: {
+              availableCount: 2,
+              inputBytes: 20,
+              latencyMs: 30_000,
+              omittedBeforeScout: 0,
+              selectedCount: 0,
+            },
+            model: "provider/executor",
+            ok: false,
+          },
+          type: "fallback",
+        });
+        return {
+          decision: "proceed",
+          markdown: "Decision: proceed",
+          model: "provider/advisor",
+          ok: true,
+          thinkingText: "",
+          trigger: "repeated-tool-call",
+        };
+      }) as any,
+    });
+    const ctx = {
+      cwd: agentDir,
+      hasUI: false,
+      isProjectTrusted: () => false,
+      signal: new AbortController().signal,
+    } as any;
+    try {
+      await events.get("tool_call")?.(
+        { input: { command: "pwd" }, toolCallId: "one", toolName: "bash" },
+        ctx
+      );
+      await events.get("tool_call")?.(
+        { input: { command: "pwd" }, toolCallId: "two", toolName: "bash" },
+        ctx
+      );
+      expect(timeline).toEqual([
+        "entry:advisor-scout-result",
+        "message:advisor-loop-call",
+        "message:advisor-loop-result",
+      ]);
+      expect(session.blocked).toBe(false);
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
+    }
   });
 
   test("preserves Scout cancellation across the final thrown-tool render", () => {

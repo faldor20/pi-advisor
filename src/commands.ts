@@ -50,15 +50,18 @@ import {
   splitRef,
 } from "./config.js";
 import { herdrAdvisorActivity, notifyHerdrAdvisorFailure } from "./herdr.js";
+import type { ScoutLifecycleEvent } from "./scout.js";
 import type { AdvisorSessionState } from "./session-state.js";
 import {
   adviceForDisplay,
+  appendScoutLifecycleEntry,
   consultAdvisor,
   advisorSessionState as defaultAdvisorSessionState,
   hasSoundVerdict,
   renderAdvisorCallBox,
   renderAdvisorResponseHeader,
   resolveAdvisorRequest,
+  ScoutStatusManager,
 } from "./tools.js";
 import {
   type AdvisorSettings,
@@ -133,7 +136,9 @@ const CONTEXT_PRESETS: ContextPreset[] = [
 type ManualConsult = (
   ctx: ExtensionContext,
   question?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onChunk?: (thinking: string, text: string) => void,
+  onScout?: (event: ScoutLifecycleEvent) => void
 ) => Promise<{
   markdown: string;
   thinkingText: string;
@@ -162,24 +167,50 @@ export const registerCommands = (
   dependencies: {
     consult?: ManualConsult;
     sessionState?: AdvisorSessionState;
+    statusManager?: ScoutStatusManager;
   } = {}
 ) => {
   const advisorSessionState =
     dependencies.sessionState ?? defaultAdvisorSessionState;
+  const scoutStatus = dependencies.statusManager ?? new ScoutStatusManager();
   const flowEnabled = () => pi.getActiveTools().includes("ask_advisor");
   const requestAdvisor =
     dependencies.consult ??
-    ((ctx, question, signal) =>
-      consultAdvisor(ctx, question, signal, undefined, "manual"));
-  const manualConsultations = new Set<AbortController>();
+    ((ctx, question, signal, onChunk, onScout) =>
+      consultAdvisor(
+        ctx,
+        question,
+        signal,
+        onChunk,
+        "manual",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        onScout
+      ));
+  const manualConsultations = new Map<AbortController, symbol>();
 
   const startManualConsultation = (
     ctx: ExtensionContext,
     question: string | undefined,
-    controller: AbortController
+    controller: AbortController,
+    scoutStatusToken: symbol
   ) => {
     herdrAdvisorActivity.start();
-    return requestAdvisor(ctx, question, controller.signal)
+    let scoutDetails: Parameters<typeof appendScoutLifecycleEntry>[2];
+    return requestAdvisor(
+      ctx,
+      question,
+      controller.signal,
+      undefined,
+      (event) => {
+        if (!controller.signal.aborted) {
+          scoutStatus.update(ctx, scoutStatusToken, event);
+          scoutDetails = appendScoutLifecycleEntry(pi, event, scoutDetails);
+        }
+      }
+    )
       .then(({ markdown }) => {
         if (controller.signal.aborted) {
           return;
@@ -233,6 +264,7 @@ export const registerCommands = (
         notifyHerdrAdvisorFailure("Advisor consultation failed", message);
       })
       .finally(() => {
+        scoutStatus.release(ctx, scoutStatusToken);
         manualConsultations.delete(controller);
         herdrAdvisorActivity.finish();
       });
@@ -399,10 +431,12 @@ export const registerCommands = (
     saveConfig(ctx);
   });
 
-  pi.on("session_shutdown", () => {
-    for (const controller of manualConsultations) {
+  pi.on("session_shutdown", (_event, ctx) => {
+    for (const [controller, token] of manualConsultations) {
       controller.abort();
+      scoutStatus.release(ctx, token);
     }
+    scoutStatus.clear(ctx);
     manualConsultations.clear();
     herdrAdvisorActivity.clear();
   });
@@ -431,14 +465,16 @@ export const registerCommands = (
       const question = resolveAdvisorRequest(args);
       // A single visible progress surface avoids competing consultations overwriting
       // each other's streamed state. A newer manual request replaces the previous one.
-      for (const pending of manualConsultations) {
+      for (const [pending, token] of manualConsultations) {
         pending.abort();
+        scoutStatus.release(ctx, token);
       }
       manualConsultations.clear();
       const controller = new AbortController();
-      manualConsultations.add(controller);
+      const scoutStatusToken = Symbol("manual-scout");
+      manualConsultations.set(controller, scoutStatusToken);
       pi.appendEntry?.("advisor-manual-call", { question });
-      startManualConsultation(ctx, question, controller);
+      startManualConsultation(ctx, question, controller, scoutStatusToken);
       return Promise.resolve();
     },
   });

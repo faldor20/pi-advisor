@@ -20,10 +20,11 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 - **Separate model and reasoning controls** for the Executor and Advisor.
 - **Privacy controls** for conversation history, repository context, explicit tracked/untracked file handoff, tool results, secret redaction, and outcome logging.
 - **Optional persistent activation, Simple mode, session summaries, and Herdr integration.**
+- **EXPERIMENTAL Advisor Scout** that uses the configured Executor model to curate conversation evidence before every Advisor call.
 
 ## Install
 
-Current release: **0.3.1**. Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0. The extension installs no dependencies of its own; Pi supplies its runtime modules.
+Current release: **0.3.2**. Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0. The extension installs no dependencies of its own; Pi supplies its runtime modules.
 
 ```bash
 # npm
@@ -56,12 +57,25 @@ You can also enable the flow and select both models at once:
 
 1. The Executor investigates the task and forms its own candidate direction.
 2. For a consequential decision, stalled attempt, or final review, it calls `ask_advisor` with the reconstructed conversation and allowed repository context.
-3. The Advisor returns a concise review. It may challenge assumptions, identify risks, or recommend the next verification step.
-4. The Executor decides what to adopt, performs the work, and validates the result.
+3. When Experimental Advisor Scout is enabled, the configured Executor model selects relevant conversation groups and writes a short, explicitly untrusted synthesis.
+4. The Advisor receives selected verbatim evidence, required current-request context, and the unchanged deterministic repository, preference, draft, and attachment regions.
+5. The Executor decides what to adopt, performs the work, and validates the result.
 
 A normal consultation never blocks execution. The optional automatic loop gate is different: it evaluates repeated tool calls and applies the configured failure policy when the Advisor says to revise, reports a block, is unavailable, or returns an invalid decision.
 
 Successful calls return an opaque `adviceId`. If global outcome logging is enabled, the Executor can call `record_advisor_outcome` once to record whether the advice was adopted and whether final validation passed.
+
+### Experimental Advisor Scout
+
+Experimental Advisor Scout is off by default. Enable `Experimental Advisor Scout` in the advanced `/advisor-settings` screen or set `"advisorScoutEnabled": true` in the global `advisor.json`.
+
+Scout runs before `ask_advisor`, `/advisor-manual`, and automatic Advisor gates. It uses the configured Executor model and Executor reasoning effort in a separate model call. This adds cost and latency. The compact result shows the model, selection counts, and elapsed time; `Ctrl+O` shows bounded selected labels and the synthesis.
+
+Scout receives a bounded manifest of conversation and tool-history groups after the normal tool disclosure, result-cap, and redaction policies are applied. It does not receive the deterministic Git context, draft, project preferences, or explicit tracked and untracked attachments. Those regions are appended later through their existing consent and cap rules.
+
+A Scout timeout, provider error, missing model or authentication, or invalid response produces a visible fallback. The Advisor then receives the original uncurated conversation. Cancelling the parent operation stops both Scout and Advisor work and does not start fallback. Scout usage is displayed separately and does not spend an Advisor call from the session budget.
+
+This experiment adapts the context-boundary idea from Zhang et al., ["FastContext: Training Efficient Repository Explorer for Coding Agents"](https://arxiv.org/html/2606.14066v1). It is not a reproduction of FastContext. The paper describes an on-demand repository explorer with read, glob, and grep tools. pi-advisor Scout curates conversation history only, and the paper's reported effect sizes do not apply to this feature.
 
 ## Commands
 
@@ -78,6 +92,8 @@ The Executor calls `ask_advisor({})` for a general review. It can pass a targete
 ## What gets sent to the Advisor
 
 Advisor context can include user messages, tool calls, tool results, and repository information. Secret redaction is off by default, and tools without an explicit disclosure policy default to full context. Review the privacy settings before using the extension with sensitive work.
+
+When Experimental Advisor Scout is enabled, the Executor model provider also receives bounded Advisor-eligible conversation history. Scout does not receive the deterministic repository, draft, preference, or explicit-file regions described below.
 
 Repository context is configurable from no access through changed-file summaries to a capped patch. When context is disabled or its budget is zero, the Advisor is told it was withheld rather than shown an apparently clean tree. Explicit tracked and untracked file contents require separate global opt-ins; attachments are capped, redacted when configured, and sent as untrusted data.
 

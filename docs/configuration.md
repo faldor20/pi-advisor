@@ -29,6 +29,7 @@ All fields are optional. This example shows the available settings and their nor
   "gateFailureMode": "block-session",
 
   "advisorSessionSummary": false,
+  "advisorScoutEnabled": false,
   "advisorGitContext": "summary",
   "advisorGitContextMaxChars": 20000,
   "simpleMode": false,
@@ -55,6 +56,18 @@ All fields are optional. This example shows the available settings and their nor
 - While the Advisor flow is active, an explicit `/model` selection becomes the persisted Executor for the next activation. A model restored with a session does not change the saved Executor.
 - `/advisor-off` turns `alwaysOn` off so the flow stays disabled in later sessions.
 - In Simple mode, settings keeps the Context window/history slider alongside Simple mode and Always on. Advanced values remain saved and take effect when Simple mode is disabled.
+
+## Experimental Advisor Scout
+
+`advisorScoutEnabled` defaults to `false` and can only be loaded from the global `advisor.json`. The `Experimental Advisor Scout` row appears in advanced `/advisor-settings`. Simple mode hides the row without changing its saved value.
+
+When enabled, Scout runs before Executor-requested `ask_advisor` calls, `/advisor-manual`, and automatic gates. It resolves the configured `executor` model and `executorEffort`; it never substitutes the Advisor model or another model. The extra call adds latency and provider cost.
+
+Scout receives at most 64 KiB of conversation history in 64 protocol-safe groups, with a 24 KiB limit per group and bounded labels. It may select at most 32 groups and return up to 4 KiB of synthesis. The synthesis is labelled as untrusted inference and never replaces selected verbatim evidence. Required current-request context is always retained. If required context cannot fit, Scout is skipped.
+
+Scout has a 30-second total timeout. Missing model or authentication, provider errors, timeouts, invalid JSON, unknown or duplicate group IDs, and over-budget output produce a visible fallback. Fallback sends the exact original conversation to the Advisor and does not change the gate decision, blocking policy, Herdr state, or Advisor-call budget. Cancelling the parent operation stops Scout and prevents the Advisor call from starting.
+
+Scout usage, latency, selection counts, pre-Scout omissions, and fallback reasons are displayed separately from Advisor usage. They remain local and ephemeral and are not included in Session Advisor Summary or Herdr reports.
 
 ## Context and limits
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.2
+
+### Added
+
+- Added **EXPERIMENTAL** Advisor Scout, an opt-in conversation curator that uses the configured Executor model before every Advisor invocation. It keeps selected evidence verbatim, labels its synthesis as untrusted inference, reports separate usage and latency, and falls back to the original context without changing Advisor or gate safety behavior. The experiment adapts the context-boundary idea from the [FastContext paper](https://arxiv.org/html/2606.14066v1); it is not the paper's repository explorer and does not claim its reported effect size.
+
 ## 0.3.1
 
 ### Changed

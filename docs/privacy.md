@@ -34,6 +34,18 @@ Redaction and output limits reduce accidental disclosure; they are not a data-cl
 
 In a trusted project, `.pi/advisor-preferences.md` may provide a short local brief. It is never written by pi-advisor, is treated as lower-priority untrusted text, and is redacted and capped before egress. Symlinks, unreadable files, and paths outside the project are ignored.
 
+## Experimental Advisor Scout
+
+`advisorScoutEnabled` defaults to `false`. When enabled, Scout sends a bounded manifest of Advisor-eligible conversation and tool history to the configured Executor model and provider before every Advisor invocation.
+
+The same tool disclosure policies, tool-result limits, and optional secret redaction run before Scout sees historical content. Tool-call and result messages are grouped atomically. Incomplete historical fragments are omitted rather than sent as orphan evidence. Required current-request context cannot be partially truncated to force a Scout call.
+
+Scout does not receive the deterministic Git context, Executor draft, project preferences, or explicitly attached tracked and untracked files. These regions bypass Scout and retain their existing disclosure, redaction, escaping, and cap rules when the final Advisor request is assembled.
+
+Scout returns selected opaque group IDs and a bounded synthesis. The Advisor receives the selected verbatim groups plus a label that identifies the synthesis as untrusted, non-authoritative inference. Scout free-form text never replaces the evidence.
+
+The Scout call creates separate provider usage and cost. Its metrics are local and ephemeral. pi-advisor does not persist a Scout trajectory, add Scout data to Session Advisor Summary, send it to Herdr, or charge it against the Advisor-call budget. An ordinary Scout failure uses the original conversation; parent cancellation stops the complete operation.
+
 ## Outcome logging
 
 `advisorOutcomeLogging` defaults to `false` and is global-only: a project config cannot enable it.

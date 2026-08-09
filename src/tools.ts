@@ -630,7 +630,8 @@ export const runAdvisorGate = async (
   question: string,
   trigger: GateTrigger = "repeated-tool-call",
   signal?: AbortSignal,
-  onChunk?: (thinking: string, text: string) => void
+  onChunk?: (thinking: string, text: string) => void,
+  onScout?: (event: ScoutLifecycleEvent) => void
 ): Promise<AdvisorGateOutcome> => {
   try {
     const result = await collectAdvisorResponse(
@@ -638,7 +639,12 @@ export const runAdvisorGate = async (
       ADVISOR_DECISION_SYSTEM,
       question,
       signal,
-      onChunk
+      onChunk,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onScout
     );
     const parsed = parseAutomaticDecision(result.markdown);
     if (!parsed.ok) {
@@ -652,6 +658,9 @@ export const runAdvisorGate = async (
       usage: result.usage,
     };
   } catch (error) {
+    if (signal?.aborted) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       category:
@@ -790,7 +799,9 @@ const handleAutomaticGate = async (
   pi: ExtensionAPI,
   event: ToolCallEvent,
   ctx: ExtensionContext,
-  session: AdvisorSessionState
+  session: AdvisorSessionState,
+  runGate: typeof runAdvisorGate,
+  scoutStatus: ScoutStatusManager
 ): Promise<ToolCallEventResult | undefined> => {
   if (
     isSimpleMode() ||
@@ -816,12 +827,34 @@ const handleAutomaticGate = async (
   }
   session.consumeCall();
   herdrAdvisorActivity.start();
-  sendAutomaticGateCall(pi, event);
+  let scoutDetails: ScoutToolDetails | undefined;
+  const scoutStatusToken = Symbol("automatic-gate-scout");
+  let gateCallSent = false;
+  const ensureGateCall = () => {
+    if (!gateCallSent) {
+      sendAutomaticGateCall(pi, event);
+      gateCallSent = true;
+    }
+  };
+  if (!advisorScoutEnabledRef) {
+    ensureGateCall();
+  }
   try {
-    const result = await runAdvisorGate(
+    const result = await runGate(
       ctx,
-      `${reason} Review the repeated actions and recommend the smallest safe next step.`
+      `${reason} Review the repeated actions and recommend the smallest safe next step.`,
+      "repeated-tool-call",
+      ctx.signal,
+      undefined,
+      (scoutEvent) => {
+        scoutStatus.update(ctx, scoutStatusToken, scoutEvent);
+        scoutDetails = appendScoutLifecycleEntry(pi, scoutEvent, scoutDetails);
+        if (scoutEvent.type === "success" || scoutEvent.type === "fallback") {
+          ensureGateCall();
+        }
+      }
     );
+    ensureGateCall();
     if (!result.ok) {
       session.recordInvocation({
         executionEffect: gateFailureEffectForMode(advisorFailureModeRef),
@@ -868,11 +901,12 @@ const handleAutomaticGate = async (
     }
     return { block: true, reason: gateReason };
   } finally {
+    scoutStatus.release(ctx, scoutStatusToken);
     herdrAdvisorActivity.finish();
   }
 };
 
-interface ScoutToolDetails {
+export interface ScoutToolDetails {
   availableCount?: number;
   fallbackReason?: string;
   latencyMs?: number;
@@ -912,7 +946,7 @@ interface AdvisorToolContext {
 const advisorResultDetails = (result: AgentToolResult<AdvisorToolDetails>) =>
   result.details;
 
-const scoutDetailsFromEvent = (
+export const scoutDetailsFromEvent = (
   event: ScoutLifecycleEvent,
   previous?: ScoutToolDetails
 ): ScoutToolDetails => {
@@ -959,6 +993,60 @@ const scoutDetailsFromEvent = (
       };
 };
 
+export const appendScoutLifecycleEntry = (
+  pi: ExtensionAPI,
+  event: ScoutLifecycleEvent,
+  previous?: ScoutToolDetails
+) => {
+  const scout = scoutDetailsFromEvent(event, previous);
+  if (
+    event.type === "success" ||
+    event.type === "fallback" ||
+    event.type === "cancelled"
+  ) {
+    pi.appendEntry?.("advisor-scout-result", scout);
+  }
+  return scout;
+};
+
+export class ScoutStatusManager {
+  readonly #active = new Set<symbol>();
+  #closed = false;
+
+  update(ctx: ExtensionContext, token: symbol, event: ScoutLifecycleEvent) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: clear() closes the manager asynchronously during session shutdown.
+    if (this.#closed || !ctx.hasUI) {
+      return;
+    }
+    if (event.type === "call" || event.type === "chunk") {
+      this.#active.add(token);
+      ctx.ui.setStatus("advisor-scout", "Scout curating…");
+      return;
+    }
+    this.release(ctx, token);
+  }
+
+  release(ctx: ExtensionContext, token: symbol) {
+    this.#active.delete(token);
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: clear() closes the manager asynchronously during session shutdown.
+    if (this.#closed || !ctx.hasUI) {
+      return;
+    }
+    ctx.ui.setStatus(
+      "advisor-scout",
+      this.#active.size > 0 ? "Scout curating…" : undefined
+    );
+  }
+
+  clear(ctx: ExtensionContext) {
+    this.#closed = true;
+    this.#active.clear();
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("advisor-scout", undefined);
+    }
+  }
+}
+
 const scoutTitle = (scout: ScoutToolDetails, frame: string) => {
   if (scout.status === "calling" || scout.status === "streaming") {
     return `◆ SCOUT ${frame} · CURATING…`;
@@ -972,7 +1060,7 @@ const scoutTitle = (scout: ScoutToolDetails, frame: string) => {
   return "◆ SCOUT · FALLBACK";
 };
 
-const renderScoutDetails = (
+export const renderScoutDetails = (
   box: Box,
   scout: ScoutToolDetails,
   expanded: boolean,
@@ -1174,9 +1262,24 @@ const renderAdvisorResult = (
 
 export const registerAdvisorTool = (
   pi: ExtensionAPI,
-  session: AdvisorSessionState = advisorSessionState
+  session: AdvisorSessionState = advisorSessionState,
+  dependencies: {
+    runGate?: typeof runAdvisorGate;
+    statusManager?: ScoutStatusManager;
+  } = {}
 ) => {
   const reservedCalls = new Set<string>();
+  const scoutStatus = dependencies.statusManager ?? new ScoutStatusManager();
+
+  pi.registerEntryRenderer?.(
+    "advisor-scout-result",
+    (entry, { expanded }, theme) => {
+      const scout = entry.data as ScoutToolDetails;
+      const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+      renderScoutDetails(box, scout, Boolean(expanded), theme);
+      return box;
+    }
+  );
 
   pi.registerMessageRenderer?.(
     "advisor-loop-call",
@@ -1275,7 +1378,14 @@ export const registerAdvisorTool = (
     if (event.toolName === "ask_advisor") {
       return reservation;
     }
-    return handleAutomaticGate(pi, event, ctx, session);
+    return handleAutomaticGate(
+      pi,
+      event,
+      ctx,
+      session,
+      dependencies.runGate ?? runAdvisorGate,
+      scoutStatus
+    );
   });
 
   pi.on("agent_settled", (_event, ctx) => {
@@ -1291,8 +1401,9 @@ export const registerAdvisorTool = (
     }
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", (_event, ctx) => {
     reservedCalls.clear();
+    scoutStatus.clear(ctx);
     herdrAdvisorBlock.clear();
   });
 
