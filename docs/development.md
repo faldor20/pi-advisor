@@ -16,6 +16,8 @@ Run the full project checks before opening a pull request:
 bun test
 bun run typecheck
 bun run lint
+bun run package:check
+bun audit --audit-level=high
 git -c diff.stat=false diff --no-ext-diff --check --no-stat
 ```
 

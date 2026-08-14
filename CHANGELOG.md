@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.4
+
+### Changed
+
+- Updated the development toolchain and Pi compatibility test matrix to the current supported patch releases.
+- Added pull-request validation and made release tags wait for frozen-install, typecheck, test, lint, package, and security-audit checks.
+- Kept Bun security auditing outside the publish workflow so an audit failure prevents a new tag instead of invalidating an existing release tag.
+- Added a package allowlist check for the published tarball and retained npm provenance publishing.
+
+### Security
+
+- Confirmed the Socket URL-string findings for `advisor-preferences.md` and `notification.show` are intentional command/path identifiers, not network endpoints.
+- Retained the constrained filesystem access required for explicit repository-file handoff; no new Socket issues were reported for 0.3.3.
+
 ## 0.3.3
 
 ### Added

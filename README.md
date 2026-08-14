@@ -24,7 +24,7 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 
 ## Install
 
-Current release: **0.3.2**. Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0. The extension installs no dependencies of its own; Pi supplies its runtime modules.
+Current release: **0.3.4**. Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0. The extension installs no dependencies of its own; Pi supplies its runtime modules.
 
 ```bash
 # npm

@@ -1,24 +1,60 @@
 {
   "name": "pi-advisor-flow",
-  "version": "0.3.3",
-  "author": "Philip Brembeck",
+  "version": "0.3.4",
+  "description": "Advanced Executor/Advisor flow for Pi, fully configurable and extendable.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "advisor",
+    "pi-advisor",
+    "herdr"
+  ],
+  "homepage": "https://github.com/philipbrembeck/pi-advisor",
   "repository": {
     "type": "git",
     "url": "https://github.com/philipbrembeck/pi-advisor.git"
   },
+  "license": "MIT",
+  "author": "Philip Brembeck",
+  "type": "module",
   "main": "extensions/index.ts",
+  "types": "extensions/index.ts",
+  "files": [
+    "extensions",
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "format": "bunx ultracite fix --linter-enabled=false",
+    "lint": "bunx ultracite check",
+    "lint:fix": "bunx ultracite fix",
+    "package:check": "node scripts/check-package.mjs",
+    "prepare": "husky",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "lint-staged": {
+    "*.{json,jsonc,ts}": "bun run lint:fix --"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.9",
+    "undici": "8.9.0"
+  },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3",
-    "@earendil-works/pi-ai": "^0.84.1",
-    "@earendil-works/pi-coding-agent": "^0.84.1",
-    "@earendil-works/pi-tui": "^0.84.1",
+    "@biomejs/biome": "2.5.8",
+    "@earendil-works/pi-ai": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "^0.84.2",
     "@types/node": "^20.11.0",
     "bun-types": "^1.0.0",
     "husky": "^9.1.7",
-    "lint-staged": "^17.1.0",
-    "typebox": "^1.1.38",
+    "lint-staged": "^17.3.0",
+    "typebox": "^1.3.14",
     "typescript": "^5.3.3",
-    "ultracite": "7.9.4"
+    "ultracite": "7.10.4"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "^0.84.1",
@@ -40,46 +76,10 @@
       "optional": true
     }
   },
-  "description": "Advanced Executor/Advisor flow for Pi, fully configurable and extendable.",
-  "files": [
-    "extensions",
-    "src",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md"
-  ],
-  "homepage": "https://github.com/philipbrembeck/pi-advisor",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi-coding-agent",
-    "advisor",
-    "pi-advisor",
-    "herdr"
-  ],
-  "license": "MIT",
-  "lint-staged": {
-    "*.{json,jsonc,ts}": "bun run lint:fix --"
-  },
-  "overrides": {
-    "brace-expansion": "5.0.9",
-    "undici": "8.9.0"
-  },
   "pi": {
     "extensions": [
       "./extensions/index.ts"
     ],
     "image": "https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/hero.png"
-  },
-  "scripts": {
-    "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "format": "bunx ultracite fix --linter-enabled=false",
-    "lint": "bunx ultracite check",
-    "lint:fix": "bunx ultracite fix",
-    "package:check": "npm pack --dry-run --json >/dev/null",
-    "prepare": "husky"
-  },
-  "type": "module",
-  "types": "extensions/index.ts"
+  }
 }
