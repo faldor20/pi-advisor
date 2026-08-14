@@ -319,35 +319,51 @@ describe("Config Module", () => {
   });
 
   test("uses safe defaults and validates known configuration keys", () => {
-    expect(advisorFailureModeRef).toBe("block-session");
-    expect(simpleModeRef).toBe(false);
-    expect(alwaysOnRef).toBe(false);
-    expect(advisorSessionSummaryRef).toBe(false);
-    expect(advisorScoutEnabledRef).toBe(false);
-    expect(advisorHerdrIntegrationRef).toBe(true);
-    expect(validateConfig({ advisorScoutEnabled: true })).toBe(true);
-    expect(() => validateConfig({ advisorScoutEnabled: "yes" })).toThrow(
-      INVALID_SCOUT_ENABLED_PATTERN
-    );
-    expect(advisorToolResultMaxLinesRef).toBe(
-      DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES
-    );
-    expect(advisorToolResultMaxBytesRef).toBe(
-      DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES
-    );
-    expect(advisorRedactSecretsRef).toBe(false);
-    expect(advisorTrackedFileContentRef).toBe(false);
-    expect(advisorToolPoliciesRef).toEqual({});
-    expect(validateConfig({ unexpected: true }, "/tmp/advisor.json")).toBe(
-      true
-    );
-    expect(() =>
-      validateConfig({ gateFailureMode: "bad" }, "/tmp/advisor.json")
-    ).toThrow(INVALID_FAILURE_MODE_PATTERN);
-    for (const invalid of [[], { bash: "invalid" }, { "": "full" }]) {
-      expect(() => validateConfig({ advisorToolPolicies: invalid })).toThrow(
-        INVALID_TOOL_POLICIES_PATTERN
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-advisor-agent-"));
+    const previousAgentDir = process.env[AGENT_DIR_ENV];
+    process.env[AGENT_DIR_ENV] = agentDir;
+
+    try {
+      resetConfigCache();
+      loadConfig({ cwd: tmpdir(), isProjectTrusted: () => false } as any);
+      expect(advisorFailureModeRef).toBe("block-session");
+      expect(simpleModeRef).toBe(false);
+      expect(alwaysOnRef).toBe(false);
+      expect(advisorSessionSummaryRef).toBe(false);
+      expect(advisorScoutEnabledRef).toBe(false);
+      expect(advisorHerdrIntegrationRef).toBe(true);
+      expect(validateConfig({ advisorScoutEnabled: true })).toBe(true);
+      expect(() => validateConfig({ advisorScoutEnabled: "yes" })).toThrow(
+        INVALID_SCOUT_ENABLED_PATTERN
       );
+      expect(advisorToolResultMaxLinesRef).toBe(
+        DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES
+      );
+      expect(advisorToolResultMaxBytesRef).toBe(
+        DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES
+      );
+      expect(advisorRedactSecretsRef).toBe(false);
+      expect(advisorTrackedFileContentRef).toBe(false);
+      expect(advisorToolPoliciesRef).toEqual({});
+      expect(validateConfig({ unexpected: true }, "/tmp/advisor.json")).toBe(
+        true
+      );
+      expect(() =>
+        validateConfig({ gateFailureMode: "bad" }, "/tmp/advisor.json")
+      ).toThrow(INVALID_FAILURE_MODE_PATTERN);
+      for (const invalid of [[], { bash: "invalid" }, { "": "full" }]) {
+        expect(() => validateConfig({ advisorToolPolicies: invalid })).toThrow(
+          INVALID_TOOL_POLICIES_PATTERN
+        );
+      }
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env[AGENT_DIR_ENV];
+      } else {
+        process.env[AGENT_DIR_ENV] = previousAgentDir;
+      }
+      resetConfigCache();
+      rmSync(agentDir, { force: true, recursive: true });
     }
   });
 

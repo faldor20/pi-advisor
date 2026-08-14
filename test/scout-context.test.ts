@@ -201,7 +201,11 @@ describe("Scout context", () => {
           },
         ]),
       ]),
-      { currentInvocationId: "bash-call" }
+      {
+        currentInvocationId: "bash-call",
+        policies: {},
+        redact: false,
+      }
     );
     expect(built.ok).toBe(true);
     if (!built.ok) {

@@ -126,16 +126,16 @@ export const appendOutcome = async (
 ) => {
   const path = outcomeLogPath();
   await mkdir(getAgentDir(), { mode: 0o700, recursive: true });
-  const next: OutcomeRecord = {
-    adoption: record.adoption,
-    adviceHash: adviceDigest(record.advice, await salt()),
-    timestamp: new Date().toISOString(),
-    trigger: record.trigger,
-    v: 1,
-    validationStatus: record.validationStatus,
-  };
-  const line = `${JSON.stringify(next)}\n`;
-  await withOutcomeLock(async () => {
+  return withOutcomeLock(async () => {
+    const next: OutcomeRecord = {
+      adoption: record.adoption,
+      adviceHash: adviceDigest(record.advice, await salt()),
+      timestamp: new Date().toISOString(),
+      trigger: record.trigger,
+      v: 1,
+      validationStatus: record.validationStatus,
+    };
+    const line = `${JSON.stringify(next)}\n`;
     const currentBytes = await stat(path)
       .then((value) => value.size)
       .catch((error: NodeJS.ErrnoException) => {
@@ -150,6 +150,6 @@ export const appendOutcome = async (
       await appendFile(path, line, { encoding: "utf8", mode: 0o600 });
     }
     await chmod(path, 0o600);
+    return next;
   });
-  return next;
 };
