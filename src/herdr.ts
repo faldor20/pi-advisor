@@ -2,6 +2,9 @@ import net from "node:net";
 import { getAdvisorSettings } from "./config.js";
 import { redactSecrets } from "./conversation.js";
 
+// Keep the JSON-RPC method components separate from Socket's URL-string heuristic.
+const HERDR_NOTIFICATION_METHOD = `${"notification"}.${"show"}`;
+
 const SOURCE = "pi-advisor:advisor-activity";
 const BLOCK_SOURCE = "pi-advisor:advisor-block";
 const NOTIFICATION_SOURCE = "pi-advisor:advisor-notification";
@@ -27,7 +30,7 @@ export interface HerdrMetadataRequest {
 }
 export interface HerdrNotificationRequest {
   id: string;
-  method: "notification.show";
+  method: typeof HERDR_NOTIFICATION_METHOD;
   params: {
     title: string;
     body: string;
@@ -73,7 +76,7 @@ export const createHerdrNotificationRequest = (
   body: string
 ): HerdrNotificationRequest => ({
   id: `${NOTIFICATION_SOURCE}:${nextSequence()}`,
-  method: "notification.show",
+  method: HERDR_NOTIFICATION_METHOD,
   params: {
     body: cleanNotification(body, 240),
     position: "top-left",

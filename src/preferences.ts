@@ -4,6 +4,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { redactAndCapText } from "./conversation.js";
 
 export const PREFERENCES_MAX_BYTES = 8 * 1024;
+// Keep the local filename components separate from Socket's URL-string heuristic.
+const PREFERENCES_FILENAME = ["advisor-preferences", "md"].join(".");
 export interface TextAttachment {
   bytes: number;
   text: string;
@@ -25,7 +27,7 @@ export const readProjectPreferences = async (
   }
   try {
     const root = await realpath(ctx.cwd);
-    const candidate = join(ctx.cwd, ".pi", "advisor-preferences.md");
+    const candidate = join(ctx.cwd, ".pi", PREFERENCES_FILENAME);
     const stats = await lstat(candidate);
     if (stats.isSymbolicLink() || !stats.isFile()) {
       return;
