@@ -77,7 +77,41 @@ describe("Advisor Scout", () => {
     expect(selection.selectedIds).toContain("g_failure");
   });
 
-  test("rejects malformed, duplicate, unknown, omitted-required, and oversized output", () => {
+  test("ignores hallucinated IDs and retains required groups", () => {
+    const selection = parseScoutSelection(
+      JSON.stringify({
+        selectedIds: ["g_unknown", "g_failure"],
+        synthesis: "Failure explains the remaining decision.",
+      }),
+      manifest()
+    );
+    expect(selection.selectedIds).toEqual(["g_required", "g_failure"]);
+
+    const requiredOnly = parseScoutSelection(
+      JSON.stringify({
+        selectedIds: ["g_unknown"],
+        synthesis: "Inference based on an unknown selection.",
+      }),
+      manifest()
+    );
+    expect(requiredOnly.selectedIds).toEqual(["g_required"]);
+    expect(requiredOnly.synthesis).toBe("");
+
+    const normalized = parseScoutSelection(
+      JSON.stringify({
+        selectedIds: ["g_other", "g_required", "g_failure"],
+        synthesis: "Selections are normalized to manifest order.",
+      }),
+      manifest()
+    );
+    expect(normalized.selectedIds).toEqual([
+      "g_required",
+      "g_failure",
+      "g_other",
+    ]);
+  });
+
+  test("rejects malformed, duplicate, oversized, and extra-key output", () => {
     const invalid = [
       "not json",
       JSON.stringify({
@@ -85,10 +119,9 @@ describe("Advisor Scout", () => {
         synthesis: "",
       }),
       JSON.stringify({
-        selectedIds: ["g_required", "g_unknown"],
+        selectedIds: ["g_unknown", "g_unknown"],
         synthesis: "",
       }),
-      JSON.stringify({ selectedIds: ["g_failure"], synthesis: "" }),
       JSON.stringify({
         selectedIds: ["g_required"],
         synthesis: "x".repeat(4097),
@@ -182,6 +215,73 @@ describe("Advisor Scout", () => {
       );
       expect(outcome).toMatchObject({ category, ok: false });
     }
+  });
+
+  test("retains required groups within the selection limit", () => {
+    const groups = Array.from({ length: 33 }, (_, index) => ({
+      ...manifest().groups[1],
+      id: `g_optional_${index}`,
+      label: `optional ${index}`,
+      originalIndex: index,
+    }));
+    const boundedManifest: ScoutManifest = {
+      ...manifest(),
+      groups: [manifest().groups[0], ...groups],
+    };
+    const selection = parseScoutSelection(
+      JSON.stringify({
+        selectedIds: groups.map((group) => group.id).reverse(),
+        synthesis: "Keep the most relevant evidence.",
+      }),
+      boundedManifest
+    );
+    expect(selection.selectedIds).toHaveLength(32);
+    expect(selection.selectedIds[0]).toBe("g_required");
+    expect(selection.selectedIds).toContain("g_optional_32");
+    expect(selection.selectedIds).not.toContain("g_optional_0");
+  });
+
+  test("rejects manifests with too many required groups", () => {
+    const oversizedManifest: ScoutManifest = {
+      ...manifest(),
+      groups: Array.from({ length: 33 }, (_, index) => ({
+        ...manifest().groups[0],
+        id: `g_required_${index}`,
+        label: `required ${index}`,
+        originalIndex: index,
+      })),
+    };
+    expect(() =>
+      parseScoutSelection(
+        JSON.stringify({ selectedIds: [], synthesis: "" }),
+        oversizedManifest
+      )
+    ).toThrow("Manifest contains more than 32 required groups");
+  });
+
+  test("curates successfully when the model includes an unknown group ID", async () => {
+    const outcome = await runAdvisorScout(
+      {} as any,
+      manifest(),
+      undefined,
+      undefined,
+      100,
+      successDependencies(
+        JSON.stringify({
+          selectedIds: ["g_unknown", "g_failure"],
+          synthesis: "Useful failure retained.",
+        })
+      ) as any
+    );
+    expect(outcome).toMatchObject({
+      metrics: { selectedCount: 2 },
+      ok: true,
+      selectedLabels: ["current task", "useful failure"],
+    });
+    if (!outcome.ok) {
+      return;
+    }
+    expect(outcome.selection.selectedIds).toEqual(["g_required", "g_failure"]);
   });
 
   test("times out as fallback and propagates its abort signal", async () => {

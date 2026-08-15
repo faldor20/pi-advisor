@@ -8,6 +8,9 @@ A configurable second-opinion workflow for <a href="https://github.com/earendil-
 
 </div>
 
+
+![d18m Downloads](https://img.shields.io/npm/d18m/pi-advisor-flow?style=flat) ![NPM Version](https://img.shields.io/npm/v/pi-advisor-flow?style=flat)
+
 `pi-advisor-flow` keeps one model focused on execution and makes a second, smarter model available for consequential decisions, stalled work, and final reviews. The Executor still owns the work. The Advisor challenges assumptions, exposes risks, and suggests verification steps without taking over or running tools.
 
 The idea is simple: keep implementation on a fast model and borrow frontier reasoning only when decisions matter. [Read why this workflow is useful](https://philipbrembeck.com/writings/2026/07/only-as-much-intelligence-as-you-need).
@@ -24,7 +27,7 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 
 ## Install
 
-Current release: **0.3.4**. Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0. The extension installs no dependencies of its own; Pi supplies its runtime modules.
+Requires Pi 0.84.1 or later and is compatible with Herdr 0.8.0.
 
 ```bash
 # npm
@@ -44,6 +47,8 @@ Restart or reload Pi after installation.
 1. Run `/advisor` to enable the flow and register `ask_advisor`.
 2. Run `/advisor-models` to choose the Executor and Advisor models. Current model and thinking-level selections appear first and ticked, so pressing Enter keeps them.
 3. Run `/advisor-settings` to configure review gates, context, privacy, and limits.
+
+![Advisor Settings](https://raw.githubusercontent.com/philipbrembeck/pi-advisor/refs/heads/main/assets/settings.png)
 
 Unknown fields in `advisor.json` are preserved for forward compatibility and reported as non-blocking warnings. Invalid recognized values remain errors, and Advisor commands show the configuration problem without crashing their handlers.
 
@@ -69,13 +74,11 @@ Successful calls return an opaque `adviceId`. If global outcome logging is enabl
 
 Experimental Advisor Scout is off by default. Enable `Experimental Advisor Scout` in the advanced `/advisor-settings` screen or set `"advisorScoutEnabled": true` in the global `advisor.json`.
 
-Scout runs before `ask_advisor`, `/advisor-manual`, and automatic Advisor gates. It uses the configured Executor model and Executor reasoning effort in a separate model call. This adds cost and latency. The compact result shows the model, selection counts, and elapsed time; `Ctrl+O` shows bounded selected labels and the synthesis.
+Scout runs before `ask_advisor`, `/advisor-manual`, and automatic Advisor gates. It uses the configured Executor model and Executor reasoning effort in a separate model call. This adds cost and latency, but can reduce cost in the Advisor call. The compact result shows the model, selection counts, and elapsed time; `Ctrl+O` shows bounded selected labels and the synthesis.
 
 Scout receives a bounded manifest of conversation and tool-history groups after the normal tool disclosure, result-cap, and redaction policies are applied. The manifest and reconstructed Scout conversation share the Advisor's remaining context budget after repository context; a zero remaining budget produces no history groups. For a pending `ask_advisor` call, Scout receives only the allowlisted question and Git-context preference, never the draft or explicit attachment paths. Scout does not receive the deterministic Git context, draft, project preferences, or explicit tracked and untracked attachments. Those regions are appended later through their existing consent and cap rules.
 
-A Scout timeout, provider error, missing model or authentication, or invalid response produces a visible fallback. The Advisor then receives the original uncurated conversation. Cancelling the parent operation stops both Scout and Advisor work and does not start fallback. Scout usage is displayed separately and does not spend an Advisor call from the session budget.
-
-This experiment adapts the context-boundary idea from Zhang et al., ["FastContext: Training Efficient Repository Explorer for Coding Agents"](https://arxiv.org/html/2606.14066v1). It is not a reproduction of FastContext. The paper describes an on-demand repository explorer with read, glob, and grep tools. pi-advisor Scout curates conversation history only, and the paper's reported effect sizes do not apply to this feature.
+This experiment adapts the context-boundary idea from Zhang et al., ["FastContext: Training Efficient Repository Explorer for Coding Agents"](https://arxiv.org/html/2606.14066v1). It is not a reproduction of FastContext. pi-advisor Scout curates conversation history only.
 
 ## Commands
 

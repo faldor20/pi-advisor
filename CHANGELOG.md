@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - Kept intentional local preference filename and Herdr method identifiers in separate components in published code so Socket's URL-string heuristic does not misclassify them.
+- Made Scout recover from hallucinated group IDs by ignoring unknown selections and retaining required context instead of discarding the entire curation.
 
 ## 0.3.4
 

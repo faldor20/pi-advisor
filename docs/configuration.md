@@ -65,7 +65,7 @@ When enabled, Scout runs before Executor-requested `ask_advisor` calls, `/adviso
 
 Scout receives at most 64 KiB of conversation history in 64 protocol-safe groups, with a 24 KiB limit per group and bounded labels. It may select at most 32 groups and return up to 4 KiB of synthesis. The synthesis is labelled as untrusted inference and never replaces selected verbatim evidence. Required current-request context is always retained. If required context cannot fit, Scout is skipped.
 
-Scout has a 30-second total timeout. Missing model or authentication, provider errors, timeouts, invalid JSON, unknown or duplicate group IDs, and over-budget output produce a visible fallback. Fallback sends the exact original conversation to the Advisor and does not change the gate decision, blocking policy, Herdr state, or Advisor-call budget. Cancelling the parent operation stops Scout and prevents the Advisor call from starting.
+Scout has a 30-second total timeout. Missing model or authentication, provider errors, timeouts, invalid JSON, duplicate group IDs, and over-budget output produce a visible fallback. Unknown selected group IDs are ignored, required groups are retained automatically, and optional selections are trimmed to the selection limit. Fallback sends the exact original conversation to the Advisor and does not change the gate decision, blocking policy, Herdr state, or Advisor-call budget. Cancelling the parent operation stops Scout and prevents the Advisor call from starting.
 
 Scout usage, latency, selection counts, pre-Scout omissions, and fallback reasons are displayed separately from Advisor usage. They remain local and ephemeral and are not included in Session Advisor Summary or Herdr reports.
 
