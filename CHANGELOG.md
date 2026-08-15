@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Kept intentional local preference filename and Herdr method identifiers in separate components in published code so Socket's URL-string heuristic does not misclassify them.
 - Made Scout recover from hallucinated group IDs by ignoring unknown selections and retaining required context instead of discarding the entire curation.
+- Added visible footer progress and Advisor-stream forwarding for `/advisor-manual` consultations ([#10](https://github.com/philipbrembeck/pi-advisor/issues/10)).
 
 ## 0.3.4
 

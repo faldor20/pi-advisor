@@ -190,6 +190,20 @@ export const registerCommands = (
         onScout
       ));
   const manualConsultations = new Map<AbortController, symbol>();
+  const setManualStatus = (
+    ctx: ExtensionContext,
+    controller: AbortController,
+    token: symbol,
+    status: string | undefined
+  ) => {
+    if (
+      ctx.hasUI &&
+      manualConsultations.get(controller) === token &&
+      !controller.signal.aborted
+    ) {
+      ctx.ui.setStatus("advisor-manual", status);
+    }
+  };
 
   const startManualConsultation = (
     ctx: ExtensionContext,
@@ -198,15 +212,43 @@ export const registerCommands = (
     scoutStatusToken: symbol
   ) => {
     herdrAdvisorActivity.start();
+    setManualStatus(ctx, controller, scoutStatusToken, "Advisor preparing…");
     let scoutDetails: Parameters<typeof appendScoutLifecycleEntry>[2];
     return requestAdvisor(
       ctx,
       question,
       controller.signal,
-      undefined,
+      (thinking, text) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        let status = "Advisor working…";
+        if (thinking.trim()) {
+          status = "Advisor thinking…";
+        }
+        if (text.trim()) {
+          status = "Advisor responding…";
+        }
+        setManualStatus(ctx, controller, scoutStatusToken, status);
+      },
       (event) => {
         if (!controller.signal.aborted) {
           scoutStatus.update(ctx, scoutStatusToken, event);
+          if (event.type === "call" || event.type === "chunk") {
+            setManualStatus(
+              ctx,
+              controller,
+              scoutStatusToken,
+              "Advisor Scout curating…"
+            );
+          } else if (event.type === "success" || event.type === "fallback") {
+            setManualStatus(
+              ctx,
+              controller,
+              scoutStatusToken,
+              "Advisor working…"
+            );
+          }
           scoutDetails = appendScoutLifecycleEntry(pi, event, scoutDetails);
         }
       }
@@ -264,6 +306,12 @@ export const registerCommands = (
         notifyHerdrAdvisorFailure("Advisor consultation failed", message);
       })
       .finally(() => {
+        if (
+          ctx.hasUI &&
+          manualConsultations.get(controller) === scoutStatusToken
+        ) {
+          ctx.ui.setStatus("advisor-manual", undefined);
+        }
         scoutStatus.release(ctx, scoutStatusToken);
         manualConsultations.delete(controller);
         herdrAdvisorActivity.finish();
@@ -432,6 +480,9 @@ export const registerCommands = (
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("advisor-manual", undefined);
+    }
     for (const [controller, token] of manualConsultations) {
       controller.abort();
       scoutStatus.release(ctx, token);

@@ -637,6 +637,72 @@ describe("Extension Registration", () => {
     ]);
   });
 
+  test("shows manual Advisor progress and forwards response chunks", async () => {
+    const commands = new Map<string, any>();
+    const statuses: Array<string | undefined> = [];
+    const chunks: string[] = [];
+    const mockPi = {
+      getActiveTools: () => [],
+      on: () => undefined,
+      registerCommand(name: string, config: any) {
+        commands.set(name, config);
+      },
+      sendMessage: () => undefined,
+    } as unknown as ExtensionAPI;
+    registerCommands(mockPi, {
+      consult: (_ctx, _question, _signal, onChunk, onScout) => {
+        onScout?.({ model: "provider/executor", type: "call" });
+        onScout?.({
+          outcome: {
+            conversation: "selected evidence",
+            metrics: {
+              availableCount: 1,
+              inputBytes: 10,
+              latencyMs: 12,
+              omittedBeforeScout: 0,
+              selectedCount: 1,
+            },
+            model: "provider/executor",
+            ok: true,
+            selectedLabels: [],
+            selection: { selectedIds: [], synthesis: "" },
+          },
+          type: "success",
+        });
+        onChunk?.("Thinking about the request", "");
+        chunks.push("thinking");
+        onChunk?.("", "The answer is ready");
+        chunks.push("response");
+        return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
+      },
+    });
+    const ctx = {
+      cwd: tmpdir(),
+      hasUI: true,
+      isProjectTrusted: () => false,
+      ui: {
+        setStatus(key: string, value: string | undefined) {
+          if (key === "advisor-manual") {
+            statuses.push(value);
+          }
+        },
+      },
+    } as any;
+
+    await commands.get("advisor-manual").handler("Check", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(chunks).toEqual(["thinking", "response"]);
+    expect(statuses).toEqual([
+      "Advisor preparing…",
+      "Advisor Scout curating…",
+      "Advisor working…",
+      "Advisor thinking…",
+      "Advisor responding…",
+      undefined,
+    ]);
+  });
+
   test("adds an immediate Advisor call entry to the transcript", async () => {
     const commands = new Map<string, any>();
     const entries: Array<{ type: string; data: unknown }> = [];

@@ -85,7 +85,7 @@ This experiment adapts the context-boundary idea from Zhang et al., ["FastContex
 | Command | Purpose |
 | --- | --- |
 | `/advisor` | Enable the flow and optionally override the Executor, Advisor, or context limit. |
-| `/advisor-manual [focus]` | Start a parallel consultation without interrupting the current Executor turn. |
+| `/advisor-manual [focus]` | Start a parallel consultation without interrupting the current Executor turn; shows progress in the footer. |
 | `/advisor-models` | Choose both models and their reasoning effort; current models are preselected. |
 | `/advisor-settings` | Configure behavior, context, gates, privacy, and output limits. |
 | `/advisor-off` | Disable the flow and turn off persistent activation. |
