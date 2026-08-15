@@ -11,6 +11,10 @@ permissions:
   id-token: write
   packages: write
 
+concurrency:
+  group: package-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Test and publish
