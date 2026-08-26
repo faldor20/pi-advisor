@@ -34,7 +34,6 @@
     "lint": "bunx ultracite check",
     "lint:fix": "bunx ultracite fix",
     "package:check": "node scripts/check-package.mjs",
-    "prepare": "husky",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
