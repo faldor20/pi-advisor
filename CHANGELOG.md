@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Report provider-supplied Advisor token usage and cost per response, with cumulative direct Advisor usage shown in the Pi footer and session summary. Pi's built-in session cost remains separate because external extension calls cannot be added to its usage totals.
+
 ## 0.3.5
 
 ### Changed

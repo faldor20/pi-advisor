@@ -77,6 +77,7 @@ import {
 } from "./session-state.js";
 import type { BenchmarkTelemetry } from "./telemetry.js";
 import { readTrackedFiles, readUntrackedFiles } from "./untracked.js";
+import { advisorUsageCost, formatAdvisorUsage } from "./usage.js";
 
 export type {
   AdvisorInvocationRecord,
@@ -302,6 +303,7 @@ export interface AdvisorGateFailure {
   markdown?: string;
   message: string;
   ok: false;
+  usage?: unknown;
 }
 export interface AdvisorConsultationResult {
   adviceId: string;
@@ -326,14 +328,6 @@ export interface AdvisorGateResult {
   usage?: unknown;
 }
 export type AdvisorGateOutcome = AdvisorGateResult | AdvisorGateFailure;
-
-export const advisorUsageCost = (usage: unknown): number | undefined => {
-  const value = usage as
-    | { cost?: { total?: unknown }; totalCost?: unknown }
-    | undefined;
-  const cost = value?.cost?.total ?? value?.totalCost;
-  return typeof cost === "number" ? cost : undefined;
-};
 
 const DECISION_LINE = /^Decision\s*:\s*(proceed|revise|blocked)\s*$/i;
 const CODE_FENCE = /^(?:```|~~~)/;
@@ -718,7 +712,7 @@ export const runAdvisorGate = async (
       usage: result.usage,
     });
     if (!parsed.ok) {
-      return parsed;
+      return { ...parsed, usage: result.usage };
     }
     return {
       ...parsed,
@@ -746,6 +740,15 @@ export const runAdvisorGate = async (
       message,
       ok: false,
     };
+  }
+};
+
+const updateAdvisorUsageStatus = (
+  ctx: ExtensionContext,
+  session: AdvisorSessionState
+) => {
+  if (ctx.hasUI) {
+    ctx.ui.setStatus("advisor-usage", session.usageStatus());
   }
 };
 
@@ -840,12 +843,16 @@ const sendAutomaticGateCall = (pi: ExtensionAPI, event: ToolCallEvent) => {
   );
 };
 
-const sendAutomaticGateFailure = (pi: ExtensionAPI, markdown: string) => {
+const sendAutomaticGateFailure = (
+  pi: ExtensionAPI,
+  markdown: string,
+  usage?: unknown
+) => {
   pi.sendMessage(
     {
       content: markdown,
       customType: "advisor-loop-result",
-      details: { text: markdown },
+      details: { text: markdown, usage },
       display: true,
     },
     { deliverAs: "steer" }
@@ -864,6 +871,7 @@ const sendAutomaticGateResult = (
         advisor: result.model,
         decision: result.decision,
         text: result.markdown,
+        usage: result.usage,
       },
       display: true,
     },
@@ -942,7 +950,9 @@ const handleAutomaticGate = async (
         kind: "gate",
         model: advisorRef,
         trigger: "repeated-tool-call",
+        usage: result.usage,
       });
+      updateAdvisorUsageStatus(ctx, session);
       const failure = failureEffect(
         result.category,
         result.message,
@@ -951,7 +961,8 @@ const handleAutomaticGate = async (
       );
       sendAutomaticGateFailure(
         pi,
-        `**Advisor gate failure (${result.category}):** ${result.message}`
+        `**Advisor gate failure (${result.category}):** ${result.message}`,
+        result.usage
       );
       return failure.block
         ? { block: true, reason: `${reason}\n${failure.reason}` }
@@ -966,6 +977,7 @@ const handleAutomaticGate = async (
       trigger: result.trigger,
       usage: result.usage,
     });
+    updateAdvisorUsageStatus(ctx, session);
     sendAutomaticGateResult(pi, result);
     if (result.decision === "proceed") {
       session.resetRepetition();
@@ -1011,6 +1023,7 @@ interface AdvisorToolDetails {
   thinking?: string;
   trackedBytes?: number;
   untrackedBytes?: number;
+  usage?: unknown;
 }
 interface AdvisorRenderState {
   phase?: string;
@@ -1176,6 +1189,10 @@ export const renderScoutDetails = (
   if (scout.fallbackReason) {
     lines.push(theme.fg("warning", `  ${scout.fallbackReason}`));
   }
+  const scoutUsage = formatAdvisorUsage(scout.usage);
+  if (scoutUsage) {
+    lines.push(theme.fg("dim", `  Usage: ${scoutUsage}`));
+  }
   if (scout.thinking && active) {
     lines.push(
       theme.fg(
@@ -1310,6 +1327,10 @@ const renderFinalAdvisorResult = (
   if (attachments.length) {
     lines.push(theme.fg("dim", `  ${attachments.join(" · ")}`));
   }
+  const advisorUsage = formatAdvisorUsage(details?.usage);
+  if (advisorUsage) {
+    lines.push(theme.fg("dim", `  Usage: ${advisorUsage}`));
+  }
   if (details?.thinking) {
     const thought = details.thinking.replace(/\n/g, " ").slice(0, 300);
     lines.push(
@@ -1385,7 +1406,12 @@ export const registerAdvisorTool = (
     "advisor-loop-result",
     (message, { expanded }, theme) => {
       const details = message.details as
-        | { decision?: GateDecision; text?: string; advisor?: string }
+        | {
+            advisor?: string;
+            decision?: GateDecision;
+            text?: string;
+            usage?: unknown;
+          }
         | undefined;
       const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
       box.addChild(
@@ -1400,6 +1426,10 @@ export const registerAdvisorTool = (
       );
       if (details?.advisor) {
         box.addChild(new Text(theme.fg("dim", `  ${details.advisor}`), 0, 0));
+      }
+      const usage = formatAdvisorUsage(details?.usage);
+      if (usage) {
+        box.addChild(new Text(theme.fg("dim", `  Usage: ${usage}`), 0, 0));
       }
       if (details?.text) {
         box.addChild(
@@ -1428,10 +1458,13 @@ export const registerAdvisorTool = (
     }
   );
 
-  pi.on("session_start", () => {
+  pi.on("session_start", (_event, ctx) => {
     session.resetTask();
     reservedCalls.clear();
     herdrAdvisorBlock.clear();
+    if (ctx?.hasUI) {
+      ctx.ui.setStatus("advisor-usage", undefined);
+    }
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
@@ -1498,6 +1531,9 @@ export const registerAdvisorTool = (
     reservedCalls.clear();
     scoutStatus.clear(ctx);
     herdrAdvisorBlock.clear();
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("advisor-usage", undefined);
+    }
   });
 
   pi.registerTool({
@@ -1571,6 +1607,7 @@ export const registerAdvisorTool = (
           trigger: "executor-requested",
           usage: result.usage,
         });
+        updateAdvisorUsageStatus(ctx, session);
         return {
           content: [
             {
@@ -1589,6 +1626,7 @@ export const registerAdvisorTool = (
             thinking: result.thinkingText,
             trackedBytes: result.trackedBytes,
             untrackedBytes: result.untrackedBytes,
+            usage: result.usage,
           },
         };
       } catch (error) {
@@ -1600,6 +1638,7 @@ export const registerAdvisorTool = (
           model: advisorRef,
           trigger: "executor-requested",
         });
+        updateAdvisorUsageStatus(ctx, session);
         notifyLocalFailure(ctx, message);
         notifyHerdrAdvisorFailure("Advisor consultation failed", message);
         throw error;

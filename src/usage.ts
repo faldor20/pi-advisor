@@ -1,0 +1,155 @@
+/** Normalized usage returned by an Advisor or Scout provider response. */
+export interface AdvisorUsageSnapshot {
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: number;
+  input?: number;
+  output?: number;
+  totalTokens?: number;
+}
+
+/** Session-local totals for Advisor model requests. */
+export interface AdvisorUsageTotals {
+  cacheRead?: number;
+  cacheWrite?: number;
+  calls: number;
+  cost?: number;
+  costCalls: number;
+  input?: number;
+  knownCalls: number;
+  output?: number;
+  totalTokens?: number;
+}
+
+const finite = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const add = (left: number | undefined, right: number | undefined) =>
+  left === undefined || right === undefined ? (left ?? right) : left + right;
+
+/** Extracts provider-agnostic usage fields without trusting provider metadata. */
+export const snapshotAdvisorUsage = (
+  usage: unknown
+): AdvisorUsageSnapshot | undefined => {
+  if (!usage || typeof usage !== "object") {
+    return undefined;
+  }
+  const source = usage as Record<string, unknown>;
+  const cost =
+    source.cost && typeof source.cost === "object"
+      ? (source.cost as Record<string, unknown>)
+      : undefined;
+  const snapshot = {
+    cacheRead: finite(source.cacheRead),
+    cacheWrite: finite(source.cacheWrite),
+    cost: finite(cost?.total) ?? finite(source.totalCost),
+    input: finite(source.input),
+    output: finite(source.output),
+    totalTokens: finite(source.totalTokens),
+  } satisfies AdvisorUsageSnapshot;
+  return Object.values(snapshot).some((value) => value !== undefined)
+    ? snapshot
+    : undefined;
+};
+
+/** Returns the reported provider cost, when the response includes one. */
+export const advisorUsageCost = (usage: unknown): number | undefined =>
+  snapshotAdvisorUsage(usage)?.cost;
+
+/** Creates empty totals without treating an absent usage field as zero usage. */
+export const emptyAdvisorUsageTotals = (): AdvisorUsageTotals => ({
+  calls: 0,
+  costCalls: 0,
+  knownCalls: 0,
+});
+
+/** Adds one provider response to the session-local usage totals. */
+export const addAdvisorUsage = (totals: AdvisorUsageTotals, usage: unknown) => {
+  totals.calls += 1;
+  const snapshot = snapshotAdvisorUsage(usage);
+  if (!snapshot) {
+    return;
+  }
+  totals.knownCalls += 1;
+  totals.cacheRead = add(totals.cacheRead, snapshot.cacheRead);
+  totals.cacheWrite = add(totals.cacheWrite, snapshot.cacheWrite);
+  totals.input = add(totals.input, snapshot.input);
+  totals.output = add(totals.output, snapshot.output);
+  totals.totalTokens = add(totals.totalTokens, snapshot.totalTokens);
+  if (snapshot.cost !== undefined) {
+    totals.cost = add(totals.cost, snapshot.cost);
+    totals.costCalls += 1;
+  }
+};
+
+const formatTokens = (value: number) => {
+  if (value < 1000) {
+    return String(value);
+  }
+  if (value < 10_000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  if (value < 1_000_000) {
+    return `${Math.round(value / 1000)}k`;
+  }
+  if (value < 10_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  return `${Math.round(value / 1_000_000)}M`;
+};
+
+const formatCost = (value: number) => `$${value.toFixed(4)}`;
+
+const formatUsageFields = (usage: AdvisorUsageSnapshot): string | undefined => {
+  const tokens = [
+    usage.input === undefined ? undefined : `↑${formatTokens(usage.input)}`,
+    usage.output === undefined ? undefined : `↓${formatTokens(usage.output)}`,
+    usage.cacheRead === undefined
+      ? undefined
+      : `cr:${formatTokens(usage.cacheRead)}`,
+    usage.cacheWrite === undefined
+      ? undefined
+      : `cw:${formatTokens(usage.cacheWrite)}`,
+  ].filter((value): value is string => value !== undefined);
+  if (tokens.length === 0 && usage.totalTokens !== undefined) {
+    tokens.push(`tokens:${formatTokens(usage.totalTokens)}`);
+  }
+  if (usage.cost !== undefined) {
+    tokens.push(formatCost(usage.cost));
+  }
+  return tokens.join(" · ") || undefined;
+};
+
+/** Formats one response for an Advisor result renderer. */
+export const formatAdvisorUsage = (usage: unknown): string | undefined => {
+  const snapshot = snapshotAdvisorUsage(usage);
+  return snapshot ? formatUsageFields(snapshot) : undefined;
+};
+
+/** Formats cumulative direct Advisor usage for a footer or session summary. */
+export const formatAdvisorUsageTotals = (
+  totals: AdvisorUsageTotals
+): string => {
+  const usage = formatUsageFields(totals);
+  const missing = totals.calls - totals.knownCalls;
+  const parts = [
+    usage,
+    missing > 0 ? `${missing} without usage data` : undefined,
+  ];
+  return (
+    parts.filter((value): value is string => value !== undefined).join(" · ") ||
+    "unavailable"
+  );
+};
+
+/** Formats the current direct Advisor usage status for the Pi footer. */
+export const formatAdvisorUsageStatus = (
+  totals: AdvisorUsageTotals
+): string | undefined => {
+  if (totals.calls === 0) {
+    return undefined;
+  }
+  const label = `Advisor: ${totals.calls} call${totals.calls === 1 ? "" : "s"}`;
+  const usage = formatAdvisorUsageTotals(totals);
+  return `${label} · ${usage}`;
+};

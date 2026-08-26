@@ -30,6 +30,7 @@ const expectedFiles = [
   "src/tools.ts",
   "src/ui.ts",
   "src/untracked.ts",
+  "src/usage.ts",
 ];
 
 if (

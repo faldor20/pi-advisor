@@ -70,6 +70,7 @@ import {
   type ContextPreset,
   SearchableModelSelector,
 } from "./ui.js";
+import { advisorUsageCost, formatAdvisorUsage } from "./usage.js";
 
 const DEFAULT_EFFORT_LEVEL = "Default (Model Default)";
 const SELECTED_PREFIX = "✓ ";
@@ -145,6 +146,7 @@ type ManualConsult = (
   thinkingText: string;
   draftBytes?: number;
   preferenceBytes?: number;
+  usage?: unknown;
 }>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
 
@@ -194,6 +196,11 @@ export const registerCommands = (
         dependencies.telemetry
       ));
   const manualConsultations = new Map<AbortController, symbol>();
+  const updateAdvisorUsageStatus = (ctx: ExtensionContext) => {
+    if (ctx.hasUI) {
+      ctx.ui.setStatus("advisor-usage", advisorSessionState.usageStatus());
+    }
+  };
   const setManualStatus = (
     ctx: ExtensionContext,
     controller: AbortController,
@@ -257,21 +264,29 @@ export const registerCommands = (
         }
       }
     )
-      .then(({ markdown }) => {
+      .then(({ markdown, usage }) => {
         if (controller.signal.aborted) {
           return;
         }
         advisorSessionState.recordInvocation({
+          cost: advisorUsageCost(usage),
           executionEffect: "continued",
           kind: "markdown",
           model: advisorRef,
           trigger: "manual",
+          usage,
         });
+        updateAdvisorUsageStatus(ctx);
         pi.sendMessage(
           {
             content: `Manual Advisor consultation${question ? ` (${question})` : ""}:\n\n${markdown}`,
             customType: "advisor-manual-result",
-            details: { advisor: advisorRef, question, text: markdown },
+            details: {
+              advisor: advisorRef,
+              question,
+              text: markdown,
+              usage,
+            },
             display: true,
           },
           {
@@ -294,6 +309,7 @@ export const registerCommands = (
           model: advisorRef,
           trigger: "manual",
         });
+        updateAdvisorUsageStatus(ctx);
         pi.sendMessage(
           {
             content: `Manual Advisor consultation failed: ${message}`,
@@ -424,7 +440,7 @@ export const registerCommands = (
     "advisor-manual-result",
     (message, { expanded }, theme) => {
       const details = message.details as
-        | { advisor?: string; text?: string }
+        | { advisor?: string; text?: string; usage?: unknown }
         | undefined;
       const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
       const advice =
@@ -442,6 +458,10 @@ export const registerCommands = (
       );
       if (details?.advisor) {
         box.addChild(new Text(theme.fg("dim", `  ${details.advisor}`), 0, 0));
+      }
+      const usage = formatAdvisorUsage(details?.usage);
+      if (usage) {
+        box.addChild(new Text(theme.fg("dim", `  Usage: ${usage}`), 0, 0));
       }
       box.addChild(
         new Markdown(
@@ -486,6 +506,7 @@ export const registerCommands = (
   pi.on("session_shutdown", (_event, ctx) => {
     if (ctx.hasUI) {
       ctx.ui.setStatus("advisor-manual", undefined);
+      ctx.ui.setStatus("advisor-usage", undefined);
     }
     for (const [controller, token] of manualConsultations) {
       controller.abort();

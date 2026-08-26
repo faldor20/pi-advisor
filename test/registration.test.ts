@@ -640,6 +640,7 @@ describe("Extension Registration", () => {
   test("shows manual Advisor progress and forwards response chunks", async () => {
     const commands = new Map<string, any>();
     const statuses: Array<string | undefined> = [];
+    const usageStatuses: Array<string | undefined> = [];
     const chunks: string[] = [];
     const mockPi = {
       getActiveTools: () => [],
@@ -673,8 +674,13 @@ describe("Extension Registration", () => {
         chunks.push("thinking");
         onChunk?.("", "The answer is ready");
         chunks.push("response");
-        return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
+        return Promise.resolve({
+          markdown: "Proceed.",
+          thinkingText: "",
+          usage: { cost: { total: 0.0123 }, input: 1234, output: 56 },
+        });
       },
+      sessionState: new AdvisorSessionState(),
     });
     const ctx = {
       cwd: tmpdir(),
@@ -684,6 +690,8 @@ describe("Extension Registration", () => {
         setStatus(key: string, value: string | undefined) {
           if (key === "advisor-manual") {
             statuses.push(value);
+          } else if (key === "advisor-usage") {
+            usageStatuses.push(value);
           }
         },
       },
@@ -701,6 +709,7 @@ describe("Extension Registration", () => {
       "Advisor responding…",
       undefined,
     ]);
+    expect(usageStatuses).toEqual(["Advisor: 1 call · ↑1.2k · ↓56 · $0.0123"]);
   });
 
   test("adds an immediate Advisor call entry to the transcript", async () => {

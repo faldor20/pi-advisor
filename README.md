@@ -21,6 +21,7 @@ The idea is simple: keep implementation on a fast model and borrow frontier reas
 - **Configurable review gates** before plans, after repeated failures, and before declaring completion.
 - **Automatic loop detection** for repeated tool calls, with explicit proceed, revise, or blocked decisions.
 - **Separate model and reasoning controls** for the Executor and Advisor.
+- **Advisor usage accounting** with per-response token/cost details and cumulative session usage in the Pi footer and session summary.
 - **Privacy controls** for conversation history, repository context, explicit tracked/untracked file handoff, tool results, secret redaction, and outcome logging.
 - **Optional persistent activation, Simple mode, session summaries, and Herdr integration.**
 - **EXPERIMENTAL Advisor Scout** that uses the configured Executor model to curate conversation evidence before every Advisor call.
@@ -65,6 +66,8 @@ You can also enable the flow and select both models at once:
 3. When Experimental Advisor Scout is enabled, the configured Executor model selects relevant conversation groups and writes a short, explicitly untrusted synthesis.
 4. The Advisor receives selected verbatim evidence, required current-request context, and the unchanged deterministic repository, preference, draft, and attachment regions.
 5. The Executor decides what to adopt, performs the work, and validates the result.
+
+Advisor responses report provider-supplied input/output/cache token counts and cost when available. Cumulative direct Advisor usage is shown separately in the footer as `Advisor: ...` and in the optional session summary; Pi's built-in cost total remains the Executor/session total because the extension API does not provide a way to inject external model usage into it.
 
 A normal consultation never blocks execution. The optional automatic loop gate is different: it evaluates repeated tool calls and applies the configured failure policy when the Advisor says to revise, reports a block, is unavailable, or returns an invalid decision.
 
