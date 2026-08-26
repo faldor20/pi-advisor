@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Report provider-supplied Advisor token usage and cost per response, with cumulative direct Advisor usage shown in the Pi footer and session summary. Pi's built-in session cost remains separate because external extension calls cannot be added to its usage totals.
+- Report provider-supplied Advisor token usage and cost per response, attach `ask_advisor` usage to Pi tool results so it appears in built-in totals and `/cost`, and show cumulative direct Advisor usage in the Pi footer and session summary. Manual consultations and automatic gates remain separate because they do not produce a tool result that can carry usage.
 
 ## 0.3.5
 

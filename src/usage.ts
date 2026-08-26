@@ -1,3 +1,5 @@
+import type { Usage } from "@earendil-works/pi-ai/compat";
+
 /** Normalized usage returned by an Advisor or Scout provider response. */
 export interface AdvisorUsageSnapshot {
   cacheRead?: number;
@@ -55,6 +57,41 @@ export const snapshotAdvisorUsage = (
 /** Returns the reported provider cost, when the response includes one. */
 export const advisorUsageCost = (usage: unknown): number | undefined =>
   snapshotAdvisorUsage(usage)?.cost;
+
+/**
+ * Converts response usage to Pi's complete usage shape for tool-result totals.
+ * Missing numeric components are zeroed only after some usage was reported.
+ */
+export const advisorUsageForPi = (usage: unknown): Usage | undefined => {
+  const snapshot = snapshotAdvisorUsage(usage);
+  if (!snapshot) {
+    return undefined;
+  }
+  const source = usage as Record<string, unknown>;
+  const cost =
+    source.cost && typeof source.cost === "object"
+      ? (source.cost as Record<string, unknown>)
+      : undefined;
+  const input = snapshot.input ?? 0;
+  const output = snapshot.output ?? 0;
+  const cacheRead = snapshot.cacheRead ?? 0;
+  const cacheWrite = snapshot.cacheWrite ?? 0;
+  return {
+    cacheRead,
+    cacheWrite,
+    cost: {
+      cacheRead: finite(cost?.cacheRead) ?? 0,
+      cacheWrite: finite(cost?.cacheWrite) ?? 0,
+      input: finite(cost?.input) ?? 0,
+      output: finite(cost?.output) ?? 0,
+      total: snapshot.cost ?? 0,
+    },
+    input,
+    output,
+    totalTokens:
+      snapshot.totalTokens ?? input + output + cacheRead + cacheWrite,
+  };
+};
 
 /** Creates empty totals without treating an absent usage field as zero usage. */
 export const emptyAdvisorUsageTotals = (): AdvisorUsageTotals => ({

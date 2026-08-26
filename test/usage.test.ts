@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   addAdvisorUsage,
+  advisorUsageForPi,
   emptyAdvisorUsageTotals,
   formatAdvisorUsage,
   formatAdvisorUsageStatus,
@@ -29,6 +30,30 @@ describe("Advisor usage", () => {
     });
     expect(snapshotAdvisorUsage({ input: "unknown" })).toBeUndefined();
     expect(snapshotAdvisorUsage({ totalCost: 0.5 })).toEqual({ cost: 0.5 });
+  });
+
+  test("converts usage to Pi's complete tool-result accounting shape", () => {
+    expect(
+      advisorUsageForPi({
+        cost: { total: 0.012_34 },
+        input: 1200,
+        output: 456,
+      })
+    ).toEqual({
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: {
+        cacheRead: 0,
+        cacheWrite: 0,
+        input: 0,
+        output: 0,
+        total: 0.012_34,
+      },
+      input: 1200,
+      output: 456,
+      totalTokens: 1656,
+    });
+    expect(advisorUsageForPi({})).toBeUndefined();
   });
 
   test("formats individual usage without treating missing fields as zero", () => {

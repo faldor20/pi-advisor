@@ -77,7 +77,11 @@ import {
 } from "./session-state.js";
 import type { BenchmarkTelemetry } from "./telemetry.js";
 import { readTrackedFiles, readUntrackedFiles } from "./untracked.js";
-import { advisorUsageCost, formatAdvisorUsage } from "./usage.js";
+import {
+  advisorUsageCost,
+  advisorUsageForPi,
+  formatAdvisorUsage,
+} from "./usage.js";
 
 export type {
   AdvisorInvocationRecord,
@@ -1608,6 +1612,7 @@ export const registerAdvisorTool = (
           usage: result.usage,
         });
         updateAdvisorUsageStatus(ctx, session);
+        const usage = advisorUsageForPi(result.usage);
         return {
           content: [
             {
@@ -1615,6 +1620,7 @@ export const registerAdvisorTool = (
               type: "text",
             },
           ],
+          ...(usage ? { usage } : {}),
           details: {
             adviceId: result.adviceId,
             advisor: result.model,

@@ -67,7 +67,7 @@ You can also enable the flow and select both models at once:
 4. The Advisor receives selected verbatim evidence, required current-request context, and the unchanged deterministic repository, preference, draft, and attachment regions.
 5. The Executor decides what to adopt, performs the work, and validates the result.
 
-Advisor responses report provider-supplied input/output/cache token counts and cost when available. Cumulative direct Advisor usage is shown separately in the footer as `Advisor: ...` and in the optional session summary; Pi's built-in cost total remains the Executor/session total because the extension API does not provide a way to inject external model usage into it.
+Advisor responses report provider-supplied input/output/cache token counts and cost when available. `ask_advisor` attaches normalized usage to its tool result, so Pi includes those calls in its built-in totals and `/cost` under `Tools/summaries`. Cumulative direct Advisor usage is also shown in the footer as `Advisor: ...` and in the optional session summary; manual consultations and automatic gates remain separate because they do not produce a tool result that can carry usage.
 
 A normal consultation never blocks execution. The optional automatic loop gate is different: it evaluates repeated tool calls and applies the configured failure policy when the Advisor says to revise, reports a block, is unavailable, or returns an invalid decision.
 
